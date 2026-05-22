@@ -1,7 +1,8 @@
 #!/bin/bash
 
-# Diffract VPS Setup Script - Production Automated Installation from Local Git Repo
-# Designed for clean Ubuntu 24.04 VPS based on nemo setup instructions.
+# Diffract VPS UI Launcher Script
+# Sets up and starts only the Diffract Next.js UI background service and Caddy proxy.
+# Assumes Docker, OpenShell, Node, and NemoClaw CLI are already installed on your system.
 
 set -e  # Exit on any error
 
@@ -35,124 +36,31 @@ print_warning() {
     echo -e "${YELLOW}⚠ $1${NC}"
 }
 
-# Step 1: Configure Firewall (Ports 80, 443, 22)
-print_header "Step 1: Configuring UFW Firewall"
-
-if command -v ufw &> /dev/null; then
-    print_warning "Configuring UFW to allow HTTP (80), HTTPS (443), and SSH (22)..."
-    ufw allow 80/tcp
-    ufw allow 443/tcp
-    ufw allow 22/tcp
-    ufw --force enable
-    print_success "UFW firewall rules configured successfully"
-else
-    print_warning "UFW is not installed. Skipping local firewall configurations."
-    print_warning "Please ensure Ports 80 & 443 are allowed in your VPS Hostinger hPanel!"
-fi
-
-# Step 2: Install and configure Docker
-print_header "Step 2: Installing & Optimizing Docker"
-
-if command -v docker &> /dev/null; then
-    print_success "Docker is already installed"
-else
-    print_warning "Installing Docker Engine..."
-    apt-get update
-    apt-get install -y apt-transport-https ca-certificates curl gnupg lsb-release
-    curl -fsSL https://get.docker.com | sh
-    systemctl enable docker
-    systemctl start docker
-    print_success "Docker installed successfully"
-fi
-
-# Apply Ubuntu 24.04 cgroup v2 configuration patch
-print_warning "Applying Docker cgroup v2 gateway patch for Ubuntu 24.04..."
-mkdir -p /etc/docker
-echo '{"default-cgroupns-mode": "host"}' > /etc/docker/daemon.json
-systemctl restart docker
-print_success "Docker cgroups patched and restarted successfully"
-
-# Verify docker socket is active
-if ! docker ps &> /dev/null; then
-    print_error "Docker is not responding after restart. Please check docker status manually."
-    exit 1
-fi
-print_success "Docker daemon is healthy"
-
-# Step 3: Install OpenShell Runtime
-print_header "Step 3: Installing OpenShell Gateway Layer"
-
-if command -v openshell &> /dev/null; then
-    print_success "OpenShell is already installed"
-else
-    print_warning "Installing OpenShell gateway binary..."
-    curl -LsSf https://raw.githubusercontent.com/NVIDIA/OpenShell/main/install.sh | sh
-    print_success "OpenShell runtime deployed successfully"
-fi
-
-# Step 4: Install NVM & Node.js LTS
-print_header "Step 4: Setting up NVM & Node.js LTS"
-
-export NVM_DIR="$HOME/.nvm"
-if [ ! -d "$NVM_DIR" ]; then
-    print_warning "Installing NVM (Node Version Manager)..."
-    curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
-fi
-
-# Load NVM into current bash execution session
-\. "$NVM_DIR/nvm.sh"
-
-print_warning "Installing and activating Node.js LTS (v20)..."
-nvm install 20
-nvm use 20
-nvm alias default 20
-print_success "Node.js $(node -v) and npm $(npm -v) configured"
-
-# Step 5: Build and install NemoClaw CLI globally
-print_header "Step 5: Building and Installing NemoClaw CLI"
-
 PROJECT_ROOT=$(pwd)
-NEMOCLAW_DIR="$PROJECT_ROOT/NemoClaw"
-
-if [ ! -d "$NEMOCLAW_DIR" ]; then
-    print_error "NemoClaw directory not found at $NEMOCLAW_DIR!"
-    exit 1
-fi
-
-cd "$NEMOCLAW_DIR"
-print_warning "Installing NemoClaw CLI dependencies..."
-npm install
-
-print_warning "Compiling CLI TypeScript to production JavaScript..."
-npm run build:cli
-
-print_warning "Installing CLI globally from local build..."
-npm install -g .
-print_success "NemoClaw CLI installed globally"
-
-# Step 6: Build Diffract UI Next.js App
-print_header "Step 6: Building Diffract UI Next.js Application"
-
 UI_DIR="$PROJECT_ROOT/diffractui"
 
 if [ ! -d "$UI_DIR" ]; then
     print_error "diffractui directory not found at $UI_DIR!"
+    print_warning "Please run this script from the repository root directory (diffract-main)."
     exit 1
 fi
 
+# Step 1: Build Diffract UI Next.js App
+print_header "Step 1: Building Diffract UI Next.js Application"
+
 cd "$UI_DIR"
-print_warning "Installing Next.js UI dependencies..."
+print_warning "Installing Next.js dependencies..."
 npm install
 
 print_warning "Building Next.js production build..."
 npm run build
-print_success "Next.js UI built successfully"
+print_success "UI built successfully"
 
-# Step 7: Create and Start systemd Service for Diffract UI
-print_header "Step 7: Creating Next.js UI Background Service"
+# Step 2: Create and Start systemd Service for Diffract UI
+print_header "Step 2: Creating Next.js UI systemd Service"
 
-NODE_PATH=$(which node)
-NPM_PATH=$(which npm)
+NODE_PATH=$(which node || echo "/usr/bin/node")
+NPM_PATH=$(which npm || echo "/usr/bin/npm")
 
 # Write native systemd service unit file
 cat <<EOF > /etc/systemd/system/diffractui.service
@@ -186,10 +94,11 @@ if systemctl is-active --quiet diffractui; then
     print_success "Diffract UI background service is running on port 3000!"
 else
     print_error "Diffract UI service failed to start. Run 'journalctl -u diffractui' for logs."
+    exit 1
 fi
 
-# Step 8: Install and configure Caddy HTTPS proxy
-print_header "Step 8: Configuring Caddy HTTPS Reverse Proxy"
+# Step 3: Install and configure Caddy HTTPS proxy
+print_header "Step 3: Configuring Caddy HTTPS Reverse Proxy"
 
 if ! command -v caddy &> /dev/null; then
     print_warning "Installing Caddy Server..."
@@ -220,21 +129,9 @@ echo "$CADDY_CONFIG" > /etc/caddy/Caddyfile
 systemctl restart caddy
 print_success "Caddy proxy configured and active!"
 
-# Set environment PATH hooks for interactive SSH root sessions
-print_header "Adjusting Shell Profile Environment Paths"
-
-if ! grep -q "NVM_DIR" ~/.bashrc; then
-    echo 'export NVM_DIR="$HOME/.nvm"' >> ~/.bashrc
-    echo '[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"' >> ~/.bashrc
-    echo 'export PATH="$PATH:$HOME/.local/bin"' >> ~/.bashrc
-    print_success "Updated ~/.bashrc PATH variables"
-fi
-
 # Finished!
-print_header "Onboarding Infrastructure Setup Complete!"
-echo -e "${GREEN}✓ All virtualization dependencies active"
-echo -e "✓ NemoClaw CLI globally built and linked"
-echo -e "✓ Diffract UI service is active on port 3000"
+print_header "Infrastructure Launch Complete!"
+echo -e "${GREEN}✓ Diffract UI service is active on port 3000"
 echo -e "✓ HTTPS/HTTP Caddy Proxy is configured${NC}\n"
 
 if [ -n "$DOMAIN" ]; then
