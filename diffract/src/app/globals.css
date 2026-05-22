@@ -1,0 +1,52 @@
+@import "tailwindcss";
+
+@theme inline {
+  --color-nc-green: #76b900;
+  --color-nc-green-dark: #5a8f00;
+  --color-nc-bg: #0a0a0a;
+  --color-nc-surface: #141414;
+  --color-nc-surface-hover: #1a1a1a;
+  --color-nc-border: #262626;
+  --color-nc-text: #fafafa;
+  --color-nc-text-muted: #a3a3a3;
+  --color-nc-text-dim: #737373;
+  --color-nc-danger: #ef4444;
+  --color-nc-warning: #f59e0b;
+  --color-nc-success: #22c55e;
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--color-nc-bg);
+  color: var(--color-nc-text);
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--color-nc-bg);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-nc-border);
+  border-radius: 3px;
+}
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(118, 185, 0, 0); }
+  50% { box-shadow: 0 0 20px 4px rgba(118, 185, 0, 0.15); }
+}
+
+@utility animate-fade-in {
+  animation: fade-in 0.4s ease-out;
+}
+
+@utility animate-pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
