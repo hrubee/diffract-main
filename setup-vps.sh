@@ -45,6 +45,17 @@ if [ ! -d "$UI_DIR" ]; then
     exit 1
 fi
 
+# Fix execute permissions on NemoClaw wrapper binaries
+print_warning "Fixing execute permissions for NemoClaw binaries..."
+NEMOCLAW_DIR="$PROJECT_ROOT/NemoClaw"
+if [ -d "$NEMOCLAW_DIR" ]; then
+    chmod +x "$NEMOCLAW_DIR/bin/nemoclaw.js" 2>/dev/null || true
+    chmod +x "$NEMOCLAW_DIR/bin/nemohermes.js" 2>/dev/null || true
+    print_success "NemoClaw execute bits patched"
+else
+    print_warning "NemoClaw directory not found. Skipping execute permission configuration."
+fi
+
 # Step 1: Build Diffract UI Next.js App
 print_header "Step 1: Building Diffract UI Next.js Application"
 
@@ -75,6 +86,7 @@ WorkingDirectory=$UI_DIR
 Environment=PATH=$PATH
 Environment=PORT=3000
 Environment=NODE_ENV=production
+Environment=DIFFRACT_PATH=$(which nemoclaw || echo "nemoclaw")
 ExecStart=$NPM_PATH run start
 Restart=always
 RestartSec=5

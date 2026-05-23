@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic";
 import { spawn } from "child_process";
 
 const DIFFRACT = process.env.DIFFRACT_PATH || "nemoclaw";
@@ -41,6 +42,7 @@ export async function GET(request: Request) {
     NEMOCLAW_MODEL: model,
     NEMOCLAW_POLICY_MODE: "custom",
     NEMOCLAW_POLICY_PRESETS: policies,
+    NEMOCLAW_IGNORE_RUNTIME_RESOURCES: "1",
     [credentialMap[provider] || "COMPATIBLE_API_KEY"]: apiKey,
   };
 
@@ -54,9 +56,15 @@ export async function GET(request: Request) {
 
   const stream = new ReadableStream({
     start(controller) {
+      let isClosed = false;
       function send(type: string, message: string, extra?: Record<string, string>) {
-        const payload = JSON.stringify({ type, message, ...extra });
-        controller.enqueue(encoder.encode(`data: ${payload}\n\n`));
+        if (isClosed) return;
+        try {
+          const payload = JSON.stringify({ type, message, ...extra });
+          controller.enqueue(encoder.encode(`data: ${payload}\n\n`));
+        } catch (e) {
+          isClosed = true;
+        }
       }
 
       let detectedSandboxName = sandboxName || "";
@@ -64,7 +72,7 @@ export async function GET(request: Request) {
       send("log", "Starting Diffract deployment...");
       send("log", `Provider: ${provider}, Model: ${model}`);
 
-      const proc = spawn(DIFFRACT, ["onboard"], {
+      const proc = spawn(`${DIFFRACT} onboard --no-gpu`, [], {
         env,
         shell: true,
       });
@@ -100,12 +108,18 @@ export async function GET(request: Request) {
         } else {
           send("error", `Deployment failed with exit code ${code}`);
         }
-        controller.close();
+        if (!isClosed) {
+          isClosed = true;
+          controller.close();
+        }
       });
 
       proc.on("error", (err) => {
         send("error", `Failed to start: ${err.message}`);
-        controller.close();
+        if (!isClosed) {
+          isClosed = true;
+          controller.close();
+        }
       });
     },
   });

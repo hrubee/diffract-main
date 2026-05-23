@@ -107,6 +107,10 @@ print_success "Changed to NemoClaw directory: $(pwd)"
 # Step 3: Install Dependencies & Build CLI
 print_header "Step 3: Installing Dependencies & Building CLI"
 
+print_warning "Installing latest version of npm..."
+npm install -g npm@latest
+print_success "npm updated to latest version"
+
 print_warning "Installing npm dependencies..."
 npm install
 print_success "Dependencies installed"
