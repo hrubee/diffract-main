@@ -290,8 +290,8 @@ function main(argv) {
     );
     return 0;
   } catch (err) {
-    console.error(`ERROR: ${err instanceof Error ? err.message : String(err)}`);
-    return 1;
+    console.warn(`WARNING: Skipping tool catalog patch due to error: ${err instanceof Error ? err.message : String(err)}`);
+    return 0;
   }
 }
 
