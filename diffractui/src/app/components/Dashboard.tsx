@@ -91,10 +91,10 @@ export default function Dashboard({ sandboxName, onDestroyed }: Props) {
       });
   }
 
-  const dashboardUrl = "http://127.0.0.1:18789";
+  const dashboardUrl = typeof window !== "undefined" ? `${window.location.origin}/agent` : "/agent";
   const dashboardUrlWithToken = gatewayToken
     ? `${dashboardUrl}/?password=${gatewayToken}#token=${gatewayToken}`
-    : dashboardUrl;
+    : `${dashboardUrl}/`;
 
   // Stream logs from openshell logs --tail
   useEffect(() => {
