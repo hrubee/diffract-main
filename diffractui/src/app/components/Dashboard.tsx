@@ -30,7 +30,7 @@ export default function Dashboard({ sandboxName, onDestroyed }: Props) {
 
   function startForward() {
     setForwardLoading(true);
-    fetch(`/api/forward?sandbox=${sandboxName}&port=18789`, { method: "POST" })
+    fetch(`/api/forward?sandbox=${sandboxName}&port=9119`, { method: "POST" })
       .then((r) => r.json())
       .then((data) => {
         setForwardActive(data.success);
@@ -222,7 +222,7 @@ export default function Dashboard({ sandboxName, onDestroyed }: Props) {
           {/* OpenClaw Dashboard Access */}
           <div className="p-4 rounded-lg bg-nc-surface border border-nc-border space-y-3">
             <div className="flex items-center justify-between">
-              <div className="text-sm font-medium text-nc-text">OpenClaw Dashboard</div>
+              <div className="text-sm font-medium text-nc-text">Hermes Web Dashboard</div>
               <div className="flex items-center gap-3">
                 <div className="flex items-center gap-1.5">
                   <div className={`w-2 h-2 rounded-full ${forwardActive ? "bg-nc-success" : "bg-nc-danger"}`} />
@@ -298,7 +298,7 @@ export default function Dashboard({ sandboxName, onDestroyed }: Props) {
 
           <div className="flex gap-3 mt-2">
             <ActionButton label="Connect" desc="Copy SSH command" onClick={() => {
-              navigator.clipboard.writeText(`diffract ${sandboxName} connect`);
+              navigator.clipboard.writeText(`nemohermes ${sandboxName} connect`);
               setTokenCopied("connect");
               setTimeout(() => setTokenCopied(""), 2000);
             }} labelOverride={tokenCopied === "connect" ? "Copied!" : undefined} />

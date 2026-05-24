@@ -41,6 +41,7 @@ export async function GET(request: Request) {
     NEMOCLAW_PROVIDER: providerMap[provider] || provider,
     NEMOCLAW_MODEL: model,
     NEMOCLAW_POLICY_MODE: "custom",
+    NEMOCLAW_AGENT: "hermes",
     NEMOCLAW_POLICY_PRESETS: policies,
     NEMOCLAW_IGNORE_RUNTIME_RESOURCES: "1",
     [credentialMap[provider] || "COMPATIBLE_API_KEY"]: apiKey,
@@ -102,8 +103,15 @@ export async function GET(request: Request) {
 
       proc.on("close", (code) => {
         if (code === 0) {
+          const sName = detectedSandboxName || "my-assistant";
+          // Start the Hermes Web UI in the background and forward the port to the host
+          import("child_process").then(({ exec }) => {
+            exec(`openshell exec ${sName} -- bash -c "nohup hermes dashboard > /tmp/hermes-ui.log 2>&1 &"`);
+            exec(`openshell forward start --background 9119 ${sName}`);
+          });
+          
           send("done", "Deployment complete", {
-            sandboxName: detectedSandboxName || "my-assistant",
+            sandboxName: sName,
           });
         } else {
           send("error", `Deployment failed with exit code ${code}`);
