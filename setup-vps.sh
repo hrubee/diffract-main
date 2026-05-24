@@ -128,12 +128,22 @@ if [ -z "$DOMAIN" ]; then
     print_warning "No domain name argument specified."
     print_warning "Configuring Caddy to proxy on default port 80..."
     CADDY_CONFIG=":80 {
-    reverse_proxy 127.0.0.1:3000
+    handle_path /agent/* {
+        reverse_proxy 127.0.0.1:18789
+    }
+    handle {
+        reverse_proxy 127.0.0.1:3000
+    }
 }"
 else
     print_success "Configuring Caddy reverse proxy for domain: $DOMAIN"
     CADDY_CONFIG="$DOMAIN {
-    reverse_proxy 127.0.0.1:3000
+    handle_path /agent/* {
+        reverse_proxy 127.0.0.1:18789
+    }
+    handle {
+        reverse_proxy 127.0.0.1:3000
+    }
 }"
 fi
 
