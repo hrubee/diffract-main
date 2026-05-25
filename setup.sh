@@ -91,13 +91,13 @@ fi
 print_header "Checking for Existing NemoClaw Installation"
 
 if command -v nemoclaw &> /dev/null; then
-    NEMOCLAW_PATH=$(which nemoclaw)
+    NEMOCLAW_PATH=$(command -v nemoclaw)
     print_warning "Found existing nemoclaw at: $NEMOCLAW_PATH"
     print_warning "Uninstalling existing global nemoclaw..."
     npm uninstall -g nemoclaw 2>/dev/null || true
     
     # Also remove the binary directly if it still exists
-    if [ -f "$NEMOCLAW_PATH" ]; then
+    if [ -n "$NEMOCLAW_PATH" ] && [ -f "$NEMOCLAW_PATH" ]; then
         rm -f "$NEMOCLAW_PATH"
         print_warning "Removed binary at: $NEMOCLAW_PATH"
     fi
@@ -109,8 +109,8 @@ fi
 
 # Verify it's gone
 if command -v nemoclaw &> /dev/null; then
-    print_warning "nemoclaw still found, attempting to remove: $(which nemoclaw)"
-    rm -f "$(which nemoclaw)"
+    print_warning "nemoclaw still found, attempting to remove: $(command -v nemoclaw)"
+    rm -f "$(command -v nemoclaw)"
 fi
 
 # Final check
