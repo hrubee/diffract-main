@@ -106,8 +106,7 @@ export async function GET(request: Request) {
           const sName = detectedSandboxName || "my-assistant";
           // Start the Hermes Web UI in the background and forward the port to the host
           import("child_process").then(({ exec }) => {
-            exec(`openshell sandbox exec -n ${sName} -- sh -c "nohup hermes dashboard > /tmp/hermes-ui.log 2>&1 &"`);
-            exec(`openshell forward start --background 9119 ${sName}`);
+            exec(`nohup hermes dashboard </dev/null >/dev/null 2>&1 &`);
           });
           
           send("done", "Deployment complete", {

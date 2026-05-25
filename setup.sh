@@ -247,7 +247,9 @@ EOF
         print_warning "No domain name argument specified. Proxying on port 80..."
         CADDY_CONFIG=":80 {
         handle_path /agent/* {
-            reverse_proxy 127.0.0.1:9119
+            reverse_proxy 127.0.0.1:9119 {
+                header_up Host {upstream_hostport}
+            }
         }
         handle {
             reverse_proxy 127.0.0.1:3000
@@ -257,7 +259,9 @@ EOF
         print_success "Configuring Caddy for domain: $DOMAIN"
         CADDY_CONFIG="$DOMAIN {
         handle_path /agent/* {
-            reverse_proxy 127.0.0.1:9119
+            reverse_proxy 127.0.0.1:9119 {
+                header_up Host {upstream_hostport}
+            }
         }
         handle {
             reverse_proxy 127.0.0.1:3000
