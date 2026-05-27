@@ -233,7 +233,7 @@ if [ "$USE_VPS" = true ]; then
     fi
 
     # Create & start systemd diffractui service
-    print_warning "Configuring Systemd service..."
+    print_warning "Configuring Systemd services..."
     NODE_PATH=$(which node || echo "/usr/bin/node")
     NPM_PATH=$(which npm || echo "/usr/bin/npm")
 
@@ -258,9 +258,28 @@ RestartSec=5
 WantedBy=multi-user.target
 EOF
 
+    # Create & start systemd hermes dashboard service
+    cat <<EOF > /etc/systemd/system/hermes-dashboard.service
+[Unit]
+Description=Hermes Dashboard UI Server
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/usr/local/lib/hermes-agent
+Environment=PATH=$PATH
+ExecStart=/usr/local/bin/hermes dashboard
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
     systemctl daemon-reload
-    systemctl enable diffractui
-    systemctl restart diffractui
+    systemctl enable diffractui hermes-dashboard
+    systemctl restart diffractui hermes-dashboard
 
     sleep 3
     if systemctl is-active --quiet diffractui; then
