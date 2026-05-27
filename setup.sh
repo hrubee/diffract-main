@@ -269,6 +269,7 @@ Type=simple
 User=root
 WorkingDirectory=/usr/local/lib/hermes-agent
 Environment=PATH=$PATH
+Environment=HOME=/root
 Environment=HERMES_WEB_DIST=/usr/local/lib/hermes-agent/hermes_cli/web_dist
 ExecStart=/usr/local/bin/hermes dashboard
 Restart=always
