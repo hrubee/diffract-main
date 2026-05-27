@@ -50,3 +50,4 @@ secrets.yaml
 service-account*.json
 token.json
 .e2e/
+agents/hermes/hermes/

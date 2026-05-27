@@ -1,0 +1,19 @@
+# Diffract Root Git Ignore
+# Excludes local staging, zip archives, testing scripts, and untracked build files
+
+# Local testing and custom Hermes repositories
+/hermes/
+/local.sh
+hermes-agent-main.zip
+
+# Operational folders
+node_modules/
+dist/
+build/
+.venv/
+__pycache__/
+
+# Logs and cache files
+*.log
+.DS_Store
+Thumbs.db

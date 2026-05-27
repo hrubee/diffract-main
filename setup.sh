@@ -150,6 +150,23 @@ else
     print_success "OpenShell installed successfully"
 fi
 
+# Step 4.5: Sync local custom Hermes code to NemoClaw build context
+print_header "Syncing Custom Hermes Source"
+PROJECT_ROOT=$(pwd)
+NEMOCLAW_DIR="$PROJECT_ROOT/NemoClaw"
+LOCAL_HERMES_DIR="$PROJECT_ROOT/hermes"
+
+if [ -d "$LOCAL_HERMES_DIR" ]; then
+    print_warning "Syncing custom Hermes codebase from $LOCAL_HERMES_DIR to NemoClaw build context..."
+    rm -rf "$NEMOCLAW_DIR/agents/hermes/hermes"
+    mkdir -p "$NEMOCLAW_DIR/agents/hermes/hermes"
+    # Copy all files including hidden ones
+    cp -a "$LOCAL_HERMES_DIR/." "$NEMOCLAW_DIR/agents/hermes/hermes/"
+    print_success "Hermes source synchronized successfully!"
+else
+    print_warning "Source directory $LOCAL_HERMES_DIR not found, skipping sync"
+fi
+
 # Step 5: Build and Install NemoClaw CLI globally
 print_header "Building and Installing NemoClaw CLI Globally"
 PROJECT_ROOT=$(pwd)
