@@ -221,7 +221,7 @@ if [ "$USE_VPS" = true ]; then
 
     # Sync and build Hermes UI
     print_warning "Syncing and Building custom Hermes UI..."
-    HERMES_UI_DIR="$PROJECT_ROOT/hermes-ui"
+    HERMES_UI_DIR="$PROJECT_ROOT/hermes/web"
     if [ -d "$HERMES_UI_DIR" ] && [ -d "/usr/local/lib/hermes-agent/web" ]; then
         cp -a "$HERMES_UI_DIR/." /usr/local/lib/hermes-agent/web/
         cd /usr/local/lib/hermes-agent/web

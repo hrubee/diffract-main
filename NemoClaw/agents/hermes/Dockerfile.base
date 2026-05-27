@@ -162,6 +162,7 @@ RUN set -eu; \
     done; \
     uv sync --frozen --no-dev "$@" --no-cache \
     && npm ci --prefer-offline --no-audit --no-fund \
+    && (cd web && npm ci --prefer-offline --no-audit --no-fund && npm run build) \
     && rm -rf /tmp/camoufox-* \
     && ln -sf /opt/hermes/.venv/bin/hermes /usr/local/bin/hermes \
     && ln -sf /opt/hermes/.venv/bin/hermes-agent /usr/local/bin/hermes-agent \
