@@ -341,6 +341,7 @@ EOF
     if [ -z "$DOMAIN" ]; then
         print_warning "No domain name argument specified. Proxying on port 80..."
         CADDY_CONFIG=":80 {
+        redir /agent /agent/
         handle_path /agent/* {
             reverse_proxy 127.0.0.1:9119 {
                 header_up Host {upstream_hostport}
@@ -359,6 +360,7 @@ EOF
     else
         print_success "Configuring Caddy for domain: $DOMAIN"
         CADDY_CONFIG="$DOMAIN {
+        redir /agent /agent/
         handle_path /agent/* {
             reverse_proxy 127.0.0.1:9119 {
                 header_up Host {upstream_hostport}

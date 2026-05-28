@@ -104,9 +104,9 @@ export async function GET(request: Request) {
       proc.on("close", (code) => {
         if (code === 0) {
           const sName = detectedSandboxName || "my-assistant";
-          // Start the Hermes Web UI in the background and forward the port to the host
+          // Start the Hermes Web UI systemd service
           import("child_process").then(({ exec }) => {
-            exec(`nohup hermes dashboard </dev/null >/dev/null 2>&1 &`);
+            exec(`sudo systemctl restart hermes-dashboard`);
           });
           
           send("done", "Deployment complete", {
