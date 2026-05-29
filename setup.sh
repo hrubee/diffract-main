@@ -289,11 +289,16 @@ CONTAINER_IP=$(docker inspect -f '{{range.NetworkSettings.Networks}}{{.IPAddress
 
 echo "Starting socat forwarder on port 9119 to $CONTAINER_IP:9119..."
 socat TCP-LISTEN:9119,fork,reuseaddr TCP:$CONTAINER_IP:9119 &
-SOCAT_PID=$!
-trap "kill $SOCAT_PID; docker exec $CONTAINER_ID /opt/hermes/.venv/bin/python /usr/local/bin/hermes dashboard --stop || true" EXIT
+SOCAT_PID1=$!
+
+echo "Starting socat forwarder on port 8642 to $CONTAINER_IP:8642..."
+socat TCP-LISTEN:8642,fork,reuseaddr TCP:$CONTAINER_IP:8642 &
+SOCAT_PID2=$!
+
+trap "kill $SOCAT_PID1 $SOCAT_PID2; docker exec $CONTAINER_ID /opt/hermes/.venv/bin/python /usr/local/bin/hermes dashboard --stop || true" EXIT
 
 echo "Starting dashboard in container..."
-docker exec -e HERMES_WEB_DIST=/opt/hermes/web_dist $CONTAINER_ID /opt/hermes/.venv/bin/python /usr/local/bin/hermes dashboard --host 0.0.0.0 --skip-build --insecure
+docker exec -e HERMES_WEB_DIST=/opt/hermes/web_dist $CONTAINER_ID /opt/hermes/.venv/bin/python /usr/local/bin/hermes dashboard --host 0.0.0.0 --skip-build --insecure --tui
 EOF
     chmod +x /usr/local/bin/start-hermes-dashboard.sh
 
@@ -340,8 +345,15 @@ EOF
 
     if [ -z "$DOMAIN" ]; then
         print_warning "No domain name argument specified. Proxying on port 80..."
-        CADDY_CONFIG=":80 {
+        CADDY_CONFIG="srv1670849.hstgr.cloud {
         redir /agent /agent/
+        
+        handle /v1/* {
+            reverse_proxy 127.0.0.1:8642 {
+                header_up Host {upstream_hostport}
+            }
+        }
+
         handle_path /agent/* {
             reverse_proxy 127.0.0.1:9119 {
                 header_up Host {upstream_hostport}
@@ -361,6 +373,13 @@ EOF
         print_success "Configuring Caddy for domain: $DOMAIN"
         CADDY_CONFIG="$DOMAIN {
         redir /agent /agent/
+
+        handle /v1/* {
+            reverse_proxy 127.0.0.1:8642 {
+                header_up Host {upstream_hostport}
+            }
+        }
+
         handle_path /agent/* {
             reverse_proxy 127.0.0.1:9119 {
                 header_up Host {upstream_hostport}
