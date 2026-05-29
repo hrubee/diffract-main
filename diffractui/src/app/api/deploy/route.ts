@@ -104,9 +104,9 @@ export async function GET(request: Request) {
       proc.on("close", (code) => {
         if (code === 0) {
           const sName = detectedSandboxName || "my-assistant";
-          // Start the Hermes Web UI systemd service
+          // Restart the port forwarder systemd service
           import("child_process").then(({ exec }) => {
-            exec(`sudo systemctl restart hermes-dashboard`);
+            exec(`sudo systemctl restart sandbox-port-forwarder`);
           });
           
           send("done", "Deployment complete", {

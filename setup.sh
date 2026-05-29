@@ -261,7 +261,7 @@ EOF
     # Install dependencies for the wrapper script
     apt-get install -y jq socat
 
-    cat <<'EOF' > /usr/local/bin/start-hermes-dashboard.sh
+    cat <<'EOF' > /usr/local/bin/sandbox-port-forwarder.sh
 #!/bin/bash
 set -e
 SANDBOX_NAME=$(jq -r ".defaultSandbox" ~/.nemoclaw/sandboxes.json)
@@ -276,9 +276,6 @@ if [ -z "$CONTAINER_ID" ]; then
     sleep 5
     exit 1
 fi
-
-echo "Cleaning up any existing dashboards in container..."
-docker exec $CONTAINER_ID /opt/hermes/.venv/bin/python /usr/local/bin/hermes dashboard --stop || true
 
 echo "Copying UI assets to container $CONTAINER_ID..."
 docker exec $CONTAINER_ID mkdir -p /opt/hermes/web_dist
@@ -295,17 +292,17 @@ echo "Starting socat forwarder on port 8642 to $CONTAINER_IP:8642..."
 socat TCP-LISTEN:8642,fork,reuseaddr TCP:$CONTAINER_IP:8642 &
 SOCAT_PID2=$!
 
-trap "kill $SOCAT_PID1 $SOCAT_PID2; docker exec $CONTAINER_ID /opt/hermes/.venv/bin/python /usr/local/bin/hermes dashboard --stop || true" EXIT
+trap "kill $SOCAT_PID1 $SOCAT_PID2" EXIT
 
-echo "Starting dashboard in container..."
-docker exec -e HERMES_WEB_DIST=/opt/hermes/web_dist $CONTAINER_ID /opt/hermes/.venv/bin/python /usr/local/bin/hermes dashboard --host 0.0.0.0 --skip-build --insecure --tui
+# Keep the script running to keep socat active
+wait
 EOF
-    chmod +x /usr/local/bin/start-hermes-dashboard.sh
+    chmod +x /usr/local/bin/sandbox-port-forwarder.sh
 
-    # Create & start systemd hermes dashboard service
-    cat <<EOF > /etc/systemd/system/hermes-dashboard.service
+    # Create & start systemd port forwarder service
+    cat <<EOF > /etc/systemd/system/sandbox-port-forwarder.service
 [Unit]
-Description=Hermes Dashboard UI Server (In-Sandbox)
+Description=Sandbox Port Forwarder (Dashboard & API)
 After=network.target docker.service
 
 [Service]
@@ -313,7 +310,7 @@ Type=simple
 User=root
 WorkingDirectory=/usr/local/lib/hermes-agent
 Environment=PATH=$PATH
-ExecStart=/usr/local/bin/start-hermes-dashboard.sh
+ExecStart=/usr/local/bin/sandbox-port-forwarder.sh
 Restart=always
 RestartSec=5
 
@@ -322,8 +319,9 @@ WantedBy=multi-user.target
 EOF
 
     systemctl daemon-reload
-    systemctl enable diffractui hermes-dashboard
-    systemctl restart diffractui hermes-dashboard
+    systemctl enable sandbox-port-forwarder.service
+    systemctl restart sandbox-port-forwarder.service
+    systemctl restart diffractui
 
     sleep 3
     if systemctl is-active --quiet diffractui; then
