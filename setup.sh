@@ -292,10 +292,25 @@ echo "Starting socat forwarder on port 8642 to $CONTAINER_IP:8642..."
 socat TCP-LISTEN:8642,fork,reuseaddr TCP:$CONTAINER_IP:8642 &
 SOCAT_PID2=$!
 
-trap "kill $SOCAT_PID1 $SOCAT_PID2" EXIT
+# Stop any stale dashboard inside the container so the fresh one can bind 9119,
+# and make sure both the dashboard and the socat forwarders are torn down when
+# this service stops/restarts.
+docker exec $CONTAINER_ID /opt/hermes/.venv/bin/python /usr/local/bin/hermes dashboard --stop || true
+trap "kill $SOCAT_PID1 $SOCAT_PID2; docker exec $CONTAINER_ID /opt/hermes/.venv/bin/python /usr/local/bin/hermes dashboard --stop || true" EXIT
 
-# Keep the script running to keep socat active
-wait
+# Launch the Hermes dashboard WITH embedded TUI chat (--tui).
+#   - --tui enables the /api/ws chat WebSocket; without it the dashboard injects
+#     __HERMES_DASHBOARD_EMBEDDED_CHAT__=false and the chat is hidden / refused (4403).
+#   - We SOURCE /tmp/nemoclaw-proxy-env.sh (written by NemoClaw start.sh) so the
+#     dashboard inherits the SAME OpenShell proxy + CA + HERMES_HOME the gateway uses.
+#     The model API key is NOT in the sandbox — it lives in OpenShell on the host (set
+#     during Diffract onboard) and is injected at the egress proxy. Without this env the
+#     agent's inference calls to https://inference.local/v1 can't resolve/authenticate,
+#     so the chat connects but never replies.
+# Foreground so this systemd service supervises it (Restart=always brings it back).
+echo "Starting Hermes dashboard (embedded TUI chat, OpenShell inference) in container..."
+docker exec -e HERMES_WEB_DIST=/opt/hermes/web_dist $CONTAINER_ID \
+  bash -c '. /tmp/nemoclaw-proxy-env.sh 2>/dev/null; exec /opt/hermes/.venv/bin/python /usr/local/bin/hermes dashboard --host 0.0.0.0 --skip-build --insecure --tui'
 EOF
     chmod +x /usr/local/bin/sandbox-port-forwarder.sh
 
