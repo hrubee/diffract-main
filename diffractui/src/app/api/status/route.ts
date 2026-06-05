@@ -94,36 +94,73 @@ function streamLogs(sandbox: string) {
   const name = sandbox || detectSandbox();
   const encoder = new TextEncoder();
 
+  // Track stream state and the spawned process so we can (a) never enqueue to a
+  // closed controller — which previously threw an uncaught "Controller is
+  // already closed" and could crash the server — and (b) kill the long-running
+  // `openshell logs --tail` process when the client disconnects, instead of
+  // leaking it.
+  let proc: ReturnType<typeof spawn> | null = null;
+  let closed = false;
+
+  function stop() {
+    if (proc) {
+      try {
+        proc.kill();
+      } catch {
+        /* already gone */
+      }
+      proc = null;
+    }
+  }
+
   const stream = new ReadableStream({
     start(controller) {
+      function safeEnqueue(line: string) {
+        if (closed) return;
+        try {
+          const payload = JSON.stringify({ type: "log", message: line });
+          controller.enqueue(encoder.encode(`data: ${payload}\n\n`));
+        } catch {
+          // Controller closed underneath us (client went away) — stop cleanly.
+          closed = true;
+          stop();
+        }
+      }
+
+      function finish() {
+        if (closed) return;
+        closed = true;
+        stop();
+        try {
+          controller.close();
+        } catch {
+          /* already closed */
+        }
+      }
+
       // Use openshell logs --tail for live streaming
-      const proc = spawn(OPENSHELL, ["logs", name, "--tail"], {
-        shell: true,
-      });
+      proc = spawn(OPENSHELL, ["logs", name, "--tail"], { shell: true });
 
-      proc.stdout.on("data", (data: Buffer) => {
-        const lines = data.toString().split("\n").filter(Boolean);
-        for (const line of lines) {
-          const payload = JSON.stringify({ type: "log", message: line });
-          controller.enqueue(encoder.encode(`data: ${payload}\n\n`));
+      proc.stdout?.on("data", (data: Buffer) => {
+        for (const line of data.toString().split("\n").filter(Boolean)) {
+          safeEnqueue(line);
         }
       });
 
-      proc.stderr.on("data", (data: Buffer) => {
-        const lines = data.toString().split("\n").filter(Boolean);
-        for (const line of lines) {
-          const payload = JSON.stringify({ type: "log", message: line });
-          controller.enqueue(encoder.encode(`data: ${payload}\n\n`));
+      proc.stderr?.on("data", (data: Buffer) => {
+        for (const line of data.toString().split("\n").filter(Boolean)) {
+          safeEnqueue(line);
         }
       });
 
-      proc.on("close", () => {
-        controller.close();
-      });
+      proc.on("close", finish);
+      proc.on("error", finish);
+    },
 
-      proc.on("error", () => {
-        controller.close();
-      });
+    // Fired when the client disconnects (navigates away / closes the EventSource).
+    cancel() {
+      closed = true;
+      stop();
     },
   });
 
