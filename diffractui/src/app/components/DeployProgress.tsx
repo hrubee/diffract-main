@@ -1,27 +1,29 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useState } from "react";
 
 interface Props {
   logs: string[];
 }
 
 export default function DeployProgress({ logs }: Props) {
-  const scrollRef = useRef<HTMLDivElement>(null);
-
+  // Elapsed-time counter so the wait feels monitored. We intentionally do NOT
+  // render the raw deploy log lines — they expose underlying tooling/brand
+  // names (nemoclaw/hermes/openshell) and command output. Logs are still
+  // streamed to derive step progress and detect errors, just never shown.
+  const [elapsed, setElapsed] = useState(0);
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [logs]);
+    const t = setInterval(() => setElapsed((e) => e + 1), 1000);
+    return () => clearInterval(t);
+  }, []);
 
   const steps = [
     { label: "Preflight checks", match: "preflight" },
     { label: "Starting gateway", match: "gateway" },
-    { label: "Creating sandbox", match: "sandbox" },
+    { label: "Creating secure sandbox", match: "sandbox" },
     { label: "Configuring inference", match: "inference" },
-    { label: "Applying policies", match: "polic" },
-    { label: "Setting up agent", match: "agent" },
+    { label: "Applying security policies", match: "polic" },
+    { label: "Setting up your assistant", match: "agent" },
   ];
 
   function getStepStatus(step: { match: string }, index: number) {
@@ -29,14 +31,12 @@ export default function DeployProgress({ logs }: Props) {
       l.toLowerCase().includes(step.match)
     );
     if (matchedIndex === -1) {
-      // Check if a later step has started
       const laterStarted = steps.slice(index + 1).some((s) =>
         logs.some((l) => l.toLowerCase().includes(s.match))
       );
       if (laterStarted) return "done";
       return "pending";
     }
-    // Check if next step has started
     const nextStep = steps[index + 1];
     if (nextStep) {
       const nextMatched = logs.some((l) =>
@@ -48,15 +48,23 @@ export default function DeployProgress({ logs }: Props) {
   }
 
   const hasError = logs.some((l) => l.startsWith("ERROR:"));
+  const mm = String(Math.floor(elapsed / 60)).padStart(2, "0");
+  const ss = String(elapsed % 60).padStart(2, "0");
 
   return (
     <div className="w-full max-w-lg animate-fade-in">
       <div className="text-center mb-8">
-        <h1 className="text-2xl font-semibold tracking-tight">Deploying</h1>
-        <p className="text-nc-text-muted mt-1">Setting up your secure sandbox</p>
+        <h1 className="text-2xl font-semibold tracking-tight">
+          Deploying your assistant
+        </h1>
+        <p className="text-nc-text-muted mt-1">
+          This usually takes about <span className="text-nc-text">10 minutes</span>.
+          You can keep this tab open — we&apos;ll take you to your dashboard
+          automatically when it&apos;s ready.
+        </p>
       </div>
 
-      {/* Step indicators */}
+      {/* Step indicators (no raw command output is shown) */}
       <div className="space-y-2 mb-6">
         {steps.map((step, i) => {
           const status = getStepStatus(step, i);
@@ -71,7 +79,7 @@ export default function DeployProgress({ logs }: Props) {
                     : "bg-nc-border text-nc-text-dim"
                 }`}
               >
-                {status === "done" ? "\u2713" : status === "active" ? "\u2022" : ""}
+                {status === "done" ? "✓" : status === "active" ? "•" : ""}
               </div>
               <span
                 className={`text-sm ${
@@ -92,37 +100,23 @@ export default function DeployProgress({ logs }: Props) {
         })}
       </div>
 
-      {/* Log output */}
-      <div
-        ref={scrollRef}
-        className="h-48 overflow-y-auto rounded-lg bg-nc-surface border border-nc-border p-4 font-mono text-xs leading-5"
-      >
-        {logs.map((log, i) => (
-          <div
-            key={i}
-            className={
-              log.startsWith("ERROR:")
-                ? "text-nc-danger"
-                : log.startsWith("WARN:")
-                ? "text-nc-warning"
-                : "text-nc-text-muted"
-            }
-          >
-            {log}
+      {!hasError ? (
+        <div className="flex items-center justify-center gap-3 rounded-lg bg-nc-surface border border-nc-border px-4 py-3 text-sm text-nc-text-muted">
+          <div className="w-4 h-4 border-2 border-nc-green border-t-transparent rounded-full animate-spin" />
+          <span>Working on it… {mm}:{ss} elapsed</span>
+        </div>
+      ) : (
+        <>
+          <div className="rounded-lg bg-nc-danger/10 border border-nc-danger/30 px-4 py-3 text-sm text-nc-danger">
+            Something went wrong while setting up your sandbox. Please try again.
           </div>
-        ))}
-        {!hasError && logs.length > 0 && (
-          <div className="inline-block w-2 h-4 bg-nc-green/60 animate-pulse" />
-        )}
-      </div>
-
-      {hasError && (
-        <button
-          onClick={() => window.location.reload()}
-          className="mt-4 w-full py-3 rounded-lg bg-nc-danger/10 border border-nc-danger/30 text-nc-danger text-sm font-medium hover:bg-nc-danger/20 transition-all"
-        >
-          Retry
-        </button>
+          <button
+            onClick={() => window.location.reload()}
+            className="mt-4 w-full py-3 rounded-lg bg-nc-danger/10 border border-nc-danger/30 text-nc-danger text-sm font-medium hover:bg-nc-danger/20 transition-all"
+          >
+            Retry
+          </button>
+        </>
       )}
     </div>
   );
