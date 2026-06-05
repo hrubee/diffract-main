@@ -40,8 +40,11 @@ resolve_hermes_dir() {
         "/root/.hermes/hermes-agent"
     )
     local d
+    # Only require hermes_cli/ — some installs (e.g. the VPS host copy) ship the
+    # web UI + Python but not the ui-tui source. Each piece is applied only if
+    # it actually exists at the destination.
     for d in "${candidates[@]}"; do
-        if [ -n "$d" ] && [ -d "$d/hermes_cli" ] && [ -d "$d/ui-tui" ]; then
+        if [ -n "$d" ] && [ -d "$d/hermes_cli" ]; then
             echo "$d"
             return 0
         fi
@@ -49,9 +52,72 @@ resolve_hermes_dir() {
     return 1
 }
 
-# Overlay the local custom Hermes branding (web dashboard, TUI, and Python
-# banners) onto the installed Hermes, then rebuild the TUI bundle and web UI.
-# Runs in both local and VPS modes so every branding edit survives a reinstall.
+# Overlay branding onto a HOST Hermes checkout ($2), from local source ($1).
+# Applies only the pieces that exist at the destination; builds are non-fatal.
+_overlay_host() {
+    local SRC="$1" DEST="$2"
+    if [ -d "$DEST/ui-tui" ] && [ -d "$SRC/ui-tui/src" ]; then
+        print_warning "  host: ui-tui src + rebuild"
+        cp -a "$SRC/ui-tui/src/." "$DEST/ui-tui/src/"
+        ( cd "$DEST/ui-tui" && npm install && npm run build ) || print_warning "  host ui-tui build failed"
+    fi
+    [ -f "$DEST/hermes_cli/banner.py" ]     && cp -f "$SRC/hermes_cli/banner.py"     "$DEST/hermes_cli/banner.py"     || true
+    [ -f "$DEST/hermes_cli/web_server.py" ] && cp -f "$SRC/hermes_cli/web_server.py" "$DEST/hermes_cli/web_server.py" || true
+    [ -f "$DEST/tui_gateway/server.py" ]    && cp -f "$SRC/tui_gateway/server.py"    "$DEST/tui_gateway/server.py"    || true
+    if [ -d "$DEST/web" ] && [ -d "$SRC/web/src" ]; then
+        print_warning "  host: web src + rebuild (-> hermes_cli/web_dist)"
+        cp -a "$SRC/web/src/." "$DEST/web/src/"
+        ( cd "$DEST/web" && npm install && npm run build ) || print_warning "  host web build failed"
+    fi
+    print_success "  host overlay applied: $DEST"
+}
+
+# Overlay branding INTO a running OpenShell sandbox container ($2), from local
+# source ($1). On a VPS the agent runs inside the container at /opt/hermes, so
+# we build the bundles on the host (Node 22 is here) and docker cp the outputs
+# in — no Node needed inside the container. Everything is guarded/non-fatal.
+_overlay_container() {
+    local SRC="$1" cid="$2"
+
+    # Web -> /opt/hermes/web_dist  (vite outputs to hermes/hermes_cli/web_dist)
+    if [ -d "$SRC/web/src" ]; then
+        print_warning "  container: build web + copy web_dist"
+        ( cd "$SRC/web" && npm install && npm run build ) || print_warning "  web build failed"
+        if [ -d "$SRC/hermes_cli/web_dist" ]; then
+            docker exec "$cid" mkdir -p /opt/hermes/web_dist 2>/dev/null || true
+            docker cp "$SRC/hermes_cli/web_dist/." "$cid:/opt/hermes/web_dist/" 2>/dev/null \
+                && print_success "  web_dist copied into container" || print_warning "  web_dist copy failed"
+        fi
+    fi
+
+    # TUI bundle -> wherever the container loads entry.js from (discovered live)
+    if [ -d "$SRC/ui-tui" ]; then
+        print_warning "  container: build TUI + copy entry.js"
+        ( cd "$SRC/ui-tui" && npm install && npm run build ) || print_warning "  TUI build failed"
+        if [ -f "$SRC/ui-tui/dist/entry.js" ]; then
+            local tpath
+            tpath=$(docker exec "$cid" sh -c 'ls /opt/hermes/hermes_cli/tui_dist/entry.js /opt/hermes/ui-tui/dist/entry.js 2>/dev/null | head -1' 2>/dev/null | tr -d '\r') || true
+            if [ -n "$tpath" ]; then
+                docker cp "$SRC/ui-tui/dist/entry.js" "$cid:$tpath" 2>/dev/null \
+                    && print_success "  TUI bundle -> $tpath" || print_warning "  TUI copy failed"
+            else
+                print_warning "  could not locate TUI entry.js inside container (skipped)"
+            fi
+        fi
+    fi
+
+    # Python branding (welcome banner, TUI gateway info, web server /docs)
+    docker cp "$SRC/hermes_cli/banner.py"     "$cid:/opt/hermes/hermes_cli/banner.py"     2>/dev/null || true
+    docker cp "$SRC/hermes_cli/web_server.py" "$cid:/opt/hermes/hermes_cli/web_server.py" 2>/dev/null || true
+    docker cp "$SRC/tui_gateway/server.py"    "$cid:/opt/hermes/tui_gateway/server.py"    2>/dev/null || true
+    print_success "  container overlay applied: $cid"
+}
+
+# Overlay the local custom Hermes branding onto wherever Hermes actually lives:
+#   - a HOST checkout (local/WSL, or the VPS host copy used for web_dist), and
+#   - the running OpenShell sandbox container (VPS, agent runs at /opt/hermes).
+# Runs in both local and VPS modes so branding survives a reinstall. Best-effort
+# and non-fatal: missing targets are skipped with a warning, never an error.
 apply_diffract_branding() {
     print_header "Applying Diffract Branding to Installed Hermes"
 
@@ -61,44 +127,36 @@ apply_diffract_branding() {
         return 0
     fi
 
+    local did=0
+
+    # --- Host-level Hermes checkout ---
     local DEST
-    DEST=$(resolve_hermes_dir) || {
-        print_warning "Installed Hermes not found (looked in /usr/local/lib/hermes-agent and ~/.hermes/hermes-agent)."
-        print_warning "Install Hermes first, then re-run — or set HERMES_AGENT_DIR=/path/to/hermes-agent."
-        return 0
-    }
-    print_success "Found installed Hermes at: $DEST"
+    if DEST=$(resolve_hermes_dir); then
+        print_success "Found host Hermes at: $DEST"
+        _overlay_host "$SRC" "$DEST"
+        did=1
+    fi
 
-    # 1. TUI source (DIFFRACT banner, branding panel, theme/brand name, …)
-    print_warning "Syncing custom TUI source (ui-tui/src)..."
-    cp -a "$SRC/ui-tui/src/." "$DEST/ui-tui/src/"
+    # --- Hermes inside a running OpenShell sandbox container (VPS) ---
+    if command -v docker >/dev/null 2>&1 && command -v jq >/dev/null 2>&1 \
+        && [ -f "$HOME/.nemoclaw/sandboxes.json" ]; then
+        local sb cid
+        sb=$(jq -r ".defaultSandbox // empty" "$HOME/.nemoclaw/sandboxes.json" 2>/dev/null) || true
+        [ -n "$sb" ] && cid=$(docker ps -q -f "name=openshell-${sb}" 2>/dev/null | head -1) || true
+        if [ -n "${cid:-}" ] && docker exec "$cid" test -d /opt/hermes/hermes_cli 2>/dev/null; then
+            print_success "Found Hermes in sandbox container: ${sb} (${cid})"
+            _overlay_container "$SRC" "$cid"
+            did=1
+        fi
+    fi
 
-    # 2. Python branding (welcome banner, TUI gateway info, web server /docs)
-    print_warning "Syncing custom Python files..."
-    cp -f "$SRC/hermes_cli/banner.py"     "$DEST/hermes_cli/banner.py"
-    cp -f "$SRC/hermes_cli/web_server.py" "$DEST/hermes_cli/web_server.py"
-    cp -f "$SRC/tui_gateway/server.py"    "$DEST/tui_gateway/server.py"
-
-    # 3. Web dashboard source (sidebar branding, removed nav/footer, …).
-    #    Copy only src/ so the install's own package.json + node_modules
-    #    (built for this OS) are left intact.
-    print_warning "Syncing custom web dashboard source (web/src)..."
-    cp -a "$SRC/web/src/." "$DEST/web/src/"
-
-    # 4. Force a fresh TUI bundle. We build explicitly rather than relying on
-    #    Hermes' auto-rebuild, because cp -a preserves mtimes and the
-    #    "is dist stale?" check can otherwise skip the rebuild.
-    print_warning "Rebuilding TUI bundle (ui-tui)..."
-    ( cd "$DEST/ui-tui" && npm install && npm run build )
-    print_success "TUI bundle rebuilt"
-
-    # 5. Rebuild the web dashboard (vite outputs to ../hermes_cli/web_dist,
-    #    which is what the dashboard server and port-forwarder serve).
-    print_warning "Rebuilding web dashboard (web)..."
-    ( cd "$DEST/web" && npm install && npm run build )
-    print_success "Web dashboard rebuilt"
-
-    print_success "Diffract branding applied to $DEST"
+    if [ "$did" = 0 ]; then
+        print_warning "No installed Hermes found on the host or in a running sandbox container."
+        print_warning "On a VPS the agent lives inside the sandbox — run 'nemoclaw onboard' first so the"
+        print_warning "container exists, then re-run setup.sh. (Override host path with HERMES_AGENT_DIR.)"
+    else
+        print_success "Diffract branding overlay complete."
+    fi
 }
 
 # Parse arguments
