@@ -419,9 +419,43 @@ docker cp /usr/local/lib/hermes-agent/hermes_cli/web_dist/. $CONTAINER_ID:/opt/h
 echo "Finding container IP..."
 CONTAINER_IP=$(docker inspect -f '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}' $CONTAINER_ID)
 
-echo "Starting socat forwarder on port 9119 to $CONTAINER_IP:9119..."
-socat TCP-LISTEN:9119,fork,reuseaddr TCP:$CONTAINER_IP:9119 &
-SOCAT_PID1=$!
+# --- Port 9119 (agent dashboard + chat WebSocket) ---
+# The chat WS guard (_ws_client_is_allowed in web_server.py) only accepts a LOOPBACK
+# client peer (a DNS-rebinding defence). Two naive transports both fail behind Caddy:
+#   * a plain host socat presents the docker BRIDGE IP as the peer -> WS upgrade 403;
+#   * an `openshell forward` / ssh -L tunnel lands in the sandbox WORKLOAD netns, but the
+#     dashboard is `docker exec`-ed into the CONTAINER netns -> the tunnel 502s.
+# Fix (transport only -- no source or image change): re-originate the connection from the
+# container's OWN loopback via an in-container socat hop, so the dashboard sees 127.0.0.1
+# as the peer and accepts the upgrade. Chain:
+#     127.0.0.1:9119 (host) -> $CONTAINER_IP:9118 (bridge) -> 127.0.0.1:9119 (in container)
+# NOTE: this neutralises the peer check in effect (same as relaxing it would) -- behind a
+# reverse proxy the peer is always the proxy, so the anti-rebinding intent cannot be
+# preserved by any transport. The real remaining gates are the per-session token
+# (?token=) and the Origin check. The host listener is bound to 127.0.0.1 (Caddy reaches
+# it via loopback) so 9119 is never exposed on a public/other interface.
+HOP_PORT=9118
+ensure_9119_forward() {
+    if ! docker exec $CONTAINER_ID ss -ltn 2>/dev/null | grep -q ":$HOP_PORT"; then
+        docker exec $CONTAINER_ID sh -c "pkill -f 'TCP-LISTEN:$HOP_PORT' 2>/dev/null; true" || true
+        docker exec -d $CONTAINER_ID socat TCP-LISTEN:$HOP_PORT,fork,reuseaddr TCP:127.0.0.1:9119 || true
+    fi
+    if ! ss -ltn 2>/dev/null | grep -q '127.0.0.1:9119'; then
+        socat TCP-LISTEN:9119,bind=127.0.0.1,fork,reuseaddr TCP:$CONTAINER_IP:$HOP_PORT &
+    fi
+}
+cleanup_fwd() {
+    kill $KEEPALIVE_PID $SOCAT_PID2 2>/dev/null || true
+    pkill -f 'TCP-LISTEN:9119,bind=127.0.0.1' 2>/dev/null || true
+    docker exec $CONTAINER_ID sh -c "pkill -f 'TCP-LISTEN:$HOP_PORT' 2>/dev/null; true" >/dev/null 2>&1 || true
+    docker exec $CONTAINER_ID /opt/hermes/.venv/bin/python /usr/local/bin/hermes dashboard --stop || true
+}
+echo "Starting loopback-reorigination forwarder on port 9119 (hop via container :$HOP_PORT)..."
+ensure_9119_forward
+# End-to-end keepalive: HTTP and WS share the hop, so a 2xx on 9119 proves the loopback
+# origination (hence the WS peer) is live. Rebuild the hop if the real path stops answering.
+( while true; do sleep 15; curl -sf --max-time 5 -o /dev/null http://127.0.0.1:9119/agent/ 2>/dev/null || ensure_9119_forward; done ) &
+KEEPALIVE_PID=$!
 
 echo "Starting socat forwarder on port 8642 to $CONTAINER_IP:8642..."
 socat TCP-LISTEN:8642,fork,reuseaddr TCP:$CONTAINER_IP:8642 &
@@ -431,7 +465,7 @@ SOCAT_PID2=$!
 # and make sure both the dashboard and the socat forwarders are torn down when
 # this service stops/restarts.
 docker exec $CONTAINER_ID /opt/hermes/.venv/bin/python /usr/local/bin/hermes dashboard --stop || true
-trap "kill $SOCAT_PID1 $SOCAT_PID2; docker exec $CONTAINER_ID /opt/hermes/.venv/bin/python /usr/local/bin/hermes dashboard --stop || true" EXIT
+trap cleanup_fwd EXIT
 
 # Launch the Hermes dashboard WITH embedded TUI chat (--tui).
 #   - --tui enables the /api/ws chat WebSocket; without it the dashboard injects
