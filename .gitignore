@@ -16,3 +16,9 @@ __pycache__/
 *.log
 .DS_Store
 Thumbs.db
+
+# Local credentials / secrets — never commit
+CREDENTIALS.local.md
+*.local.md
+*.secret
+secrets/
