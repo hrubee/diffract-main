@@ -90,34 +90,15 @@ _overlay_container() {
         fi
     fi
 
-    # TUI: sync source (src + packages + scripts + package.json) into the
-    # container and build it THERE. The container's Hermes can be a different
-    # version than this repo, so the matching hermes-ink package must ship with
-    # the new src — a host-built entry.js can be incompatible, and Hermes'
-    # auto-rebuild would otherwise recompile the in-container (old) src and
-    # clobber a copied bundle. Building in place keeps everything consistent.
-    if [ -d "$SRC/ui-tui/src" ] && docker exec "$cid" test -d /opt/hermes/ui-tui 2>/dev/null; then
-        print_warning "  container: sync ui-tui source + rebuild in place"
-        docker cp "$SRC/ui-tui/src/."         "$cid:/opt/hermes/ui-tui/src/"         2>/dev/null || true
-        docker cp "$SRC/ui-tui/packages/."    "$cid:/opt/hermes/ui-tui/packages/"    2>/dev/null || true
-        docker cp "$SRC/ui-tui/scripts/."     "$cid:/opt/hermes/ui-tui/scripts/"     2>/dev/null || true
-        docker cp "$SRC/ui-tui/package.json"  "$cid:/opt/hermes/ui-tui/package.json" 2>/dev/null || true
-        if docker exec "$cid" bash -lc 'cd /opt/hermes/ui-tui && node scripts/build.mjs' >/dev/null 2>&1 \
-           || docker exec "$cid" bash -lc 'cd /opt/hermes/ui-tui && npm install && node scripts/build.mjs' >/dev/null 2>&1; then
-            print_success "  TUI rebuilt in container"
-        else
-            print_warning "  in-container TUI build failed (keeping existing bundle)"
-        fi
-        # Keep dist newest so Hermes never triggers (and fails) an auto-rebuild
-        # from the freshly-synced src.
-        docker exec "$cid" sh -c 'touch /opt/hermes/ui-tui/dist/entry.js' 2>/dev/null || true
-    fi
-
-    # Python branding (welcome banner, TUI gateway info, web server /docs)
-    docker cp "$SRC/hermes_cli/banner.py"     "$cid:/opt/hermes/hermes_cli/banner.py"     2>/dev/null || true
-    docker cp "$SRC/hermes_cli/web_server.py" "$cid:/opt/hermes/hermes_cli/web_server.py" 2>/dev/null || true
-    docker cp "$SRC/tui_gateway/server.py"    "$cid:/opt/hermes/tui_gateway/server.py"    2>/dev/null || true
-    print_success "  container overlay applied: $cid"
+    # IMPORTANT: do NOT patch the in-container TUI (ui-tui) or Python (banner.py,
+    # tui_gateway, web_server) here. The sandbox runs a *pinned-image* Hermes
+    # whose version can differ from this repo. Overlaying this repo's newer
+    # ui-tui/tui_gateway source onto the older in-container Hermes breaks the
+    # TUI↔gateway protocol and the chat session ends immediately ("session
+    # ended"). Only the self-contained web dashboard (web_dist, handled above)
+    # is safe to overlay live. To rebrand the sandbox TUI, bake the branding
+    # into a version-matched sandbox image instead of live-patching.
+    print_success "  container overlay applied (web only): $cid"
 }
 
 # Overlay the local custom Hermes branding onto wherever Hermes actually lives:
