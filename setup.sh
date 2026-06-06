@@ -90,20 +90,27 @@ _overlay_container() {
         fi
     fi
 
-    # TUI bundle -> wherever the container loads entry.js from (discovered live)
-    if [ -d "$SRC/ui-tui" ]; then
-        print_warning "  container: build TUI + copy entry.js"
-        ( cd "$SRC/ui-tui" && npm install && npm run build ) || print_warning "  TUI build failed"
-        if [ -f "$SRC/ui-tui/dist/entry.js" ]; then
-            local tpath
-            tpath=$(docker exec "$cid" sh -c 'ls /opt/hermes/hermes_cli/tui_dist/entry.js /opt/hermes/ui-tui/dist/entry.js 2>/dev/null | head -1' 2>/dev/null | tr -d '\r') || true
-            if [ -n "$tpath" ]; then
-                docker cp "$SRC/ui-tui/dist/entry.js" "$cid:$tpath" 2>/dev/null \
-                    && print_success "  TUI bundle -> $tpath" || print_warning "  TUI copy failed"
-            else
-                print_warning "  could not locate TUI entry.js inside container (skipped)"
-            fi
+    # TUI: sync source (src + packages + scripts + package.json) into the
+    # container and build it THERE. The container's Hermes can be a different
+    # version than this repo, so the matching hermes-ink package must ship with
+    # the new src — a host-built entry.js can be incompatible, and Hermes'
+    # auto-rebuild would otherwise recompile the in-container (old) src and
+    # clobber a copied bundle. Building in place keeps everything consistent.
+    if [ -d "$SRC/ui-tui/src" ] && docker exec "$cid" test -d /opt/hermes/ui-tui 2>/dev/null; then
+        print_warning "  container: sync ui-tui source + rebuild in place"
+        docker cp "$SRC/ui-tui/src/."         "$cid:/opt/hermes/ui-tui/src/"         2>/dev/null || true
+        docker cp "$SRC/ui-tui/packages/."    "$cid:/opt/hermes/ui-tui/packages/"    2>/dev/null || true
+        docker cp "$SRC/ui-tui/scripts/."     "$cid:/opt/hermes/ui-tui/scripts/"     2>/dev/null || true
+        docker cp "$SRC/ui-tui/package.json"  "$cid:/opt/hermes/ui-tui/package.json" 2>/dev/null || true
+        if docker exec "$cid" bash -lc 'cd /opt/hermes/ui-tui && node scripts/build.mjs' >/dev/null 2>&1 \
+           || docker exec "$cid" bash -lc 'cd /opt/hermes/ui-tui && npm install && node scripts/build.mjs' >/dev/null 2>&1; then
+            print_success "  TUI rebuilt in container"
+        else
+            print_warning "  in-container TUI build failed (keeping existing bundle)"
         fi
+        # Keep dist newest so Hermes never triggers (and fails) an auto-rebuild
+        # from the freshly-synced src.
+        docker exec "$cid" sh -c 'touch /opt/hermes/ui-tui/dist/entry.js' 2>/dev/null || true
     fi
 
     # Python branding (welcome banner, TUI gateway info, web server /docs)
