@@ -222,7 +222,7 @@ export default function Dashboard({ sandboxName, onDestroyed }: Props) {
           {/* OpenClaw Dashboard Access */}
           <div className="p-4 rounded-lg bg-nc-surface border border-nc-border space-y-3">
             <div className="flex items-center justify-between">
-              <div className="text-sm font-medium text-nc-text">Hermes Web Dashboard</div>
+              <div className="text-sm font-medium text-nc-text">Diffract Web Dashboard</div>
               <div className="flex items-center gap-3">
                 <div className="flex items-center gap-1.5">
                   <div className={`w-2 h-2 rounded-full ${forwardActive ? "bg-nc-success" : "bg-nc-danger"}`} />

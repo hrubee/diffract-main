@@ -67,6 +67,10 @@ _overlay_host() {
     if [ -d "$DEST/web" ] && [ -d "$SRC/web/src" ]; then
         print_warning "  host: web src + rebuild (-> hermes_cli/web_dist)"
         cp -a "$SRC/web/src/." "$DEST/web/src/"
+        # index.html carries the <title> (vite uses it as the build template); it lives
+        # in web/ not web/src, so it must be copied explicitly or the browser tab keeps
+        # the old brand even after a rebrand.
+        [ -f "$SRC/web/index.html" ] && cp -f "$SRC/web/index.html" "$DEST/web/index.html" || true
         ( cd "$DEST/web" && npm install && npm run build ) || print_warning "  host web build failed"
     fi
     print_success "  host overlay applied: $DEST"
