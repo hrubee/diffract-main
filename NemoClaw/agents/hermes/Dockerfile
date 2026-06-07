@@ -51,12 +51,21 @@ ENV HERMES_TELEGRAM_DISABLE_FALLBACK_IPS=1
 # Hermes (these files are pinned to the base image's Hermes version so the
 # bundle rebuilds cleanly — do NOT replace with a different Hermes version's
 # source) and rebuild the TUI bundle in place. Runs as root (the base's final
-# user state here) so /opt/hermes is writable; node + ui-tui/node_modules come
-# from the base image.
+# user state here) so /opt/hermes is writable; node comes from the base image.
+# The base image does NOT ship ui-tui/node_modules, so install the TUI build deps
+# (esbuild etc. are devDependencies) here before rebuilding the bundle, then drop
+# them again — esbuild inlines everything into dist/, which is self-contained at
+# runtime (the base ships a built dist/ with no node_modules). Without this the
+# rebuild fails with "Cannot find package 'esbuild'" and onboard cannot create a
+# sandbox.
 COPY agents/hermes/branding/banner.ts /opt/hermes/ui-tui/src/banner.ts
 COPY agents/hermes/branding/theme.ts /opt/hermes/ui-tui/src/theme.ts
 COPY agents/hermes/branding/components/branding.tsx /opt/hermes/ui-tui/src/components/branding.tsx
-RUN cd /opt/hermes/ui-tui && node scripts/build.mjs && touch dist/entry.js
+RUN cd /opt/hermes/ui-tui \
+    && npm ci --prefer-offline --no-audit --no-fund \
+    && node scripts/build.mjs \
+    && touch dist/entry.js \
+    && rm -rf node_modules
 
 # Copy NemoClaw plugin for Hermes (Python-based)
 COPY agents/hermes/plugin/ /opt/nemoclaw-hermes-plugin/
