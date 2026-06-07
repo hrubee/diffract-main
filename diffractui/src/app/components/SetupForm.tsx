@@ -25,6 +25,11 @@ const POLICY_PRESETS = [
   { key: "brew", label: "Homebrew", desc: "macOS packages", suggested: false },
 ];
 
+// Sandbox name rules — must match NemoClaw validateName (RFC 1123 label rules);
+// see NAME_ALLOWED_FORMAT in NemoClaw/src/lib/name-validation.ts.
+const SANDBOX_NAME_RE = /^[a-z]([a-z0-9-]*[a-z0-9])?$/;
+const SANDBOX_NAME_MAX = 63;
+
 interface Props {
   onDeploy: (config: Record<string, string>) => void;
 }
@@ -62,6 +67,7 @@ export default function SetupForm({ onDeploy }: Props) {
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (sandboxNameError) return;
     const config: Record<string, string> = {
       provider,
       model,
@@ -76,7 +82,19 @@ export default function SetupForm({ onDeploy }: Props) {
     onDeploy(config);
   }
 
-  const isValid = apiKey.length > 0 && (provider !== "custom" || customEndpoint.length > 0);
+  const sandboxNameError =
+    sandboxName.length === 0
+      ? ""
+      : sandboxName.length > SANDBOX_NAME_MAX
+        ? `Must be ${SANDBOX_NAME_MAX} characters or fewer.`
+        : !SANDBOX_NAME_RE.test(sandboxName)
+          ? "Lowercase letters, numbers, and internal hyphens only; start with a letter and end with a letter or number."
+          : "";
+
+  const isValid =
+    apiKey.length > 0 &&
+    (provider !== "custom" || customEndpoint.length > 0) &&
+    !sandboxNameError;
 
   return (
     <div className="w-full max-w-lg animate-fade-in">
@@ -224,8 +242,23 @@ export default function SetupForm({ onDeploy }: Props) {
                   value={sandboxName}
                   onChange={(e) => setSandboxName(e.target.value)}
                   placeholder="Auto-generated if empty"
-                  className="w-full px-4 py-3 rounded-lg bg-nc-surface border border-nc-border text-nc-text placeholder:text-nc-text-dim focus:outline-none focus:border-nc-green focus:ring-1 focus:ring-nc-green/30 transition-all text-sm"
+                  maxLength={SANDBOX_NAME_MAX}
+                  aria-invalid={sandboxNameError ? true : undefined}
+                  className={`w-full px-4 py-3 rounded-lg bg-nc-surface border text-nc-text placeholder:text-nc-text-dim focus:outline-none focus:ring-1 transition-all text-sm ${
+                    sandboxNameError
+                      ? "border-red-500/60 focus:border-red-500 focus:ring-red-500/30"
+                      : "border-nc-border focus:border-nc-green focus:ring-nc-green/30"
+                  }`}
                 />
+                {sandboxNameError ? (
+                  <p className="mt-1.5 text-xs text-red-400">{sandboxNameError}</p>
+                ) : (
+                  <p className="mt-1.5 text-xs text-nc-text-dim">
+                    1–63 chars · lowercase · starts with a letter · letters,
+                    numbers &amp; internal hyphens only · ends with a letter/number.
+                    Leave blank to auto-generate.
+                  </p>
+                )}
               </div>
 
               {/* Policy Presets */}
