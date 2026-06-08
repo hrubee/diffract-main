@@ -22,6 +22,15 @@ RUN set -eu; \
     test -x /usr/local/bin/hermes; \
     /usr/local/bin/hermes --version
 
+# OpenShell v0.0.57+ runs the workload in an isolated network namespace whose
+# only egress is the credential-injecting proxy; the supervisor needs iproute2
+# (+ iptables/nftables) to create that netns or startup fails ("proxy mode
+# requires isolation"). Harmless/unused on the pinned 0.0.39. Installed before
+# the slim-down below (which only purges build tools), so they persist.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends iproute2 iptables nftables \
+    && rm -rf /var/lib/apt/lists/*
+
 # Harden: remove unnecessary build tools and network probes
 RUN (apt-get remove --purge -y gcc gcc-12 g++ g++-12 cpp cpp-12 make \
         netcat-openbsd netcat-traditional ncat 2>/dev/null || true) \
