@@ -67,6 +67,38 @@ daemon. On the isolated `/opt/ostest` 0.0.57 stack:
 
 ## Phase 1 — NemoClaw integration (≈1–2 days, all git-reversible, no live impact)
 
+### Concrete integration spec (investigated 2026-06-09)
+
+**Status:** image deps done (`Dockerfile`, committed — pin still 0.0.39, no live effect). Exact
+remaining shape, nailed down by reading the 0.0.57 binary + NemoClaw source:
+
+- **0.0.57 auth is configured via a TOML config file passed with `--config`, NOT env vars.**
+  NemoClaw currently starts the gateway env-only, no config file. The TOML needs two sections
+  (validated working in the `/opt/ostest` lab):
+  ```toml
+  [openshell.gateway.auth]
+  allow_unauthenticated_users = true            # else 0.0.57 requires OIDC/mTLS for the docker gateway
+  [openshell.gateway.gateway_jwt]
+  ttl_secs = 3600
+  signing_key_path = "<state>/jwt/signing.pem"  # Ed25519
+  public_key_path  = "<state>/jwt/public.pem"
+  kid_path         = "<state>/jwt/kid"
+  ```
+- **`OPENSHELL_DISABLE_GATEWAY_AUTH` is not a 0.0.57 flag** (absent from `--help`) — harmless if left
+  (ignored), but drop it for cleanliness. (`docker-driver-gateway-env.ts`.)
+- **Launch wiring (`docker-driver-gateway-launch.ts`):** the gateway runs two ways — direct binary,
+  or inside a glibc compat container (`docker run … <image> <gatewayBin>`). For 0.0.57, both paths
+  must: (a) generate the Ed25519 keypair + `kid` into `<stateDir>/jwt/` if absent, (b) write the
+  TOML, (c) append `--config <toml>`. The compat-container path must also `--volume`-mount the
+  jwt dir + the TOML read-only (they already mount `stateDir` rw, so placing both under `stateDir`
+  means no extra mounts).
+- **Version-gate everything on `openshell >= 0.0.57`** so the 0.0.39 path is untouched until the pin
+  flips.
+- Keygen: `openssl genpkey -algorithm ed25519` (or node `crypto.generateKeyPairSync('ed25519')`);
+  `kid` = a stable hash of the public key.
+
+### Original task list
+
 1. **Gateway-minted JWT.** Generate + persist an Ed25519 keypair at image build / first boot;
    configure `[openshell.gateway.gateway_jwt] { signing_key_path, public_key_path, kid_path,
    ttl_secs }`.
