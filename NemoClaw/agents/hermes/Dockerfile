@@ -67,26 +67,26 @@ RUN cd /opt/hermes/ui-tui \
     && touch dist/entry.js \
     && rm -rf node_modules
 
-# ── Diffract: bake user CLI tools so they survive sandbox destroy/recreate ──
-# OpenShell sandboxes have no persistent volume — everything under /sandbox is
-# rebuilt from this Dockerfile on each `nemoclaw onboard`, so tools a user
-# installs at runtime (e.g. GHL CLI via the dashboard) vanish on destroy. Bake
-# them into the image instead. GHL CLI (https://github.com/hrubee/GHL-CLI) is a
-# public TypeScript CLI: clone a pinned ref, install + build, and expose `ghl`
-# on PATH via /usr/local/bin. node/npm/git come from the base image and
-# build-time network is available (the ui-tui step above already runs npm ci).
-# node_modules is intentionally retained — dist/index.js needs it at runtime.
-ARG GHL_CLI_REPO=https://github.com/hrubee/GHL-CLI.git
-ARG GHL_CLI_REF=main
-RUN set -eux; \
-    git clone --depth 1 --branch "${GHL_CLI_REF}" "${GHL_CLI_REPO}" /opt/diffract-tools/GHL-CLI; \
-    cd /opt/diffract-tools/GHL-CLI; \
-    npm ci --no-audit --no-fund; \
-    npm run build; \
-    ln -sf /opt/diffract-tools/GHL-CLI/dist/index.js /usr/local/bin/ghl; \
-    chmod +x /opt/diffract-tools/GHL-CLI/dist/index.js; \
-    rm -rf .git /root/.npm; \
-    chmod -R a+rX /opt/diffract-tools
+# ── Diffract universal tool installer ──────────────────────────────────────
+# Bake third-party CLI tools into the image so they survive sandbox
+# destroy/recreate (OpenShell sandboxes have no persistent volume; /sandbox is
+# rebuilt from this Dockerfile on each `nemoclaw onboard`). Adding a tool is a
+# single entry in diffract-tools.json — no Dockerfile edit.
+#
+# Tools install under /sandbox/.diffract-tools/<name> (NOT /opt): OpenShell
+# confines the agent's filesystem reads to its home (/sandbox) and runtime
+# (/opt/hermes), so a tool under an arbitrary path like /opt/diffract-tools is
+# UNREADABLE by the sandboxed agent even when world-readable (verified: the
+# workload gets EACCES on /opt/diffract-tools but reads /opt/hermes and
+# /sandbox fine). The installer symlinks each tool's entrypoint onto the
+# agent's PATH (/usr/local/bin). The file-persistence backup excludes
+# .diffract-tools (see scripts/diffract-persist.sh) so a restore never clobbers
+# the baked copies. node/npm/git come from the base image; build-time network
+# is available.
+COPY agents/hermes/diffract-tools.json /opt/nemoclaw-diffract/diffract-tools.json
+COPY agents/hermes/install-diffract-tools.sh /usr/local/bin/install-diffract-tools.sh
+RUN chmod +x /usr/local/bin/install-diffract-tools.sh \
+    && /usr/local/bin/install-diffract-tools.sh /opt/nemoclaw-diffract/diffract-tools.json
 
 # Copy NemoClaw plugin for Hermes (Python-based)
 COPY agents/hermes/plugin/ /opt/nemoclaw-hermes-plugin/

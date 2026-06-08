@@ -1,0 +1,23 @@
+{
+  "$comment": "Diffract universal tool registry. Each entry defines a third-party CLI the agent can use. The INSTALL fields (repo/ref/kind/build/entry/bin) are consumed at image-build time by install-diffract-tools.sh to bake the tool into /sandbox/.diffract-tools/<name> and put <bin> on the agent PATH. The CONNECT fields (secretEnv/configEnv/apiHosts/authHeader) describe how to wire the tool's credentials securely at runtime via diffract-tool-connect.sh (OpenShell generic provider -> placeholder in sandbox -> real secret injected at egress). Add a tool = add an entry here; no Dockerfile edit.",
+  "tools": [
+    {
+      "name": "ghl",
+      "description": "GoHighLevel CRM CLI",
+      "repo": "https://github.com/hrubee/GHL-CLI.git",
+      "ref": "main",
+      "kind": "node",
+      "build": "npm ci --no-audit --no-fund && npm run build",
+      "entry": "dist/index.js",
+      "bin": "ghl",
+      "secretEnv": "GHL_PRIVATE_TOKEN",
+      "configEnv": {
+        "GHL_LOCATION_ID": ""
+      },
+      "apiHosts": [
+        "services.leadconnectorhq.com:443"
+      ],
+      "authHeader": "Authorization: Bearer"
+    }
+  ]
+}

@@ -37,7 +37,7 @@ EXCLUDES=(
   --exclude=.cache           # bloat
   --exclude=.npm             # bloat
   --exclude=node_modules     # bloat (reinstallable)
-  --exclude=GHL-CLI          # baked into the image now (see hermes Dockerfile)
+  --exclude=.diffract-tools  # baked CLI tools (see install-diffract-tools.sh)
   --exclude=.diffract-restored
 )
 
