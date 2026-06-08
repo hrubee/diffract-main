@@ -427,6 +427,20 @@ EOF
     fi
     mkdir -p /var/lib/diffract/persist
 
+    # Install the universal tool connector (used by the diffractui Tools tab to
+    # wire a baked CLI's credentials to the agent: host-side OpenShell provider +
+    # egress allow-list; the secret never enters the sandbox). See
+    # scripts/diffract-tool-connect.sh. Also stage the tool registry on a stable
+    # host path so the Tools API can read it regardless of cwd.
+    if [ -f "$PROJECT_ROOT/scripts/diffract-tool-connect.sh" ]; then
+        install -m 0755 "$PROJECT_ROOT/scripts/diffract-tool-connect.sh" /usr/local/bin/diffract-tool-connect.sh \
+            && print_success "  installed diffract-tool-connect.sh"
+    fi
+    if [ -f "$PROJECT_ROOT/NemoClaw/agents/hermes/diffract-tools.json" ]; then
+        mkdir -p /usr/local/share/diffract \
+            && install -m 0644 "$PROJECT_ROOT/NemoClaw/agents/hermes/diffract-tools.json" /usr/local/share/diffract/diffract-tools.json
+    fi
+
     cat <<'EOF' > /usr/local/bin/sandbox-port-forwarder.sh
 #!/bin/bash
 set -e

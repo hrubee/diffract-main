@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import FilesTab from "./FilesTab";
+import ToolsTab from "./ToolsTab";
 
 interface Props {
   sandboxName: string;
@@ -9,7 +10,7 @@ interface Props {
 }
 
 export default function Dashboard({ sandboxName, onDestroyed }: Props) {
-  const [activeTab, setActiveTab] = useState<"status" | "files" | "logs" | "policies" | "rules">("status");
+  const [activeTab, setActiveTab] = useState<"status" | "files" | "tools" | "logs" | "policies" | "rules">("status");
   const [status, setStatus] = useState<Record<string, string>>({});
   const [logs, setLogs] = useState<string[]>([]);
   const [policies, setPolicies] = useState<string[]>([]);
@@ -142,6 +143,7 @@ export default function Dashboard({ sandboxName, onDestroyed }: Props) {
   const tabs = [
     { key: "status" as const, label: "Status" },
     { key: "files" as const, label: "Files" },
+    { key: "tools" as const, label: "Tools" },
     { key: "logs" as const, label: "Logs" },
     { key: "policies" as const, label: "Policy" },
     { key: "rules" as const, label: "Rules" },
@@ -335,6 +337,8 @@ export default function Dashboard({ sandboxName, onDestroyed }: Props) {
 
       {/* Files Tab — browse / upload / download files in the sandbox */}
       {activeTab === "files" && <FilesTab sandboxName={sandboxName} />}
+
+      {activeTab === "tools" && <ToolsTab sandboxName={sandboxName} />}
 
       {/* Logs Tab — openshell logs --tail */}
       {activeTab === "logs" && (
