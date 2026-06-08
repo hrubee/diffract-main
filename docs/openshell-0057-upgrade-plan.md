@@ -23,9 +23,30 @@ gateway-credential-injection angle that the upgrade must also fix.
 
 ---
 
-## Phase 0 — GATE: does 0.0.57 inject creds into the *gateway*? (≈0.5 day, non-destructive)
+## Phase 0 — GATE: does 0.0.57 inject creds into the *gateway*? ✅ PASSED (2026-06-08)
 
-**This decides whether the whole upgrade is worth doing.** The prior 0.0.57 validation only proved
+**RESULT: PASSED — the upgrade fixes the dashboard tool-use.** Validated in a fully isolated
+`docker:dind` lab (own PID namespace + own Docker daemon; the live demo was never touched). Ran the
+real 0.0.57 gateway, created a sandbox from a minimal debian-slim image (iproute2/nftables) with a
+`generic` provider (`TEST_TOKEN=ZZSECRETVALUE99`) attached **at create**, then:
+
+- **Delivery ✅** — read `/proc/<pid>/environ` of every sandbox process: the long-running workload
+  daemon (`sleep infinity`, pid 24 — the gateway analog) **had** the `openshell:resolve:...`
+  placeholder in its env, exactly like an exec session. On 0.0.39 the gateway daemon had *nothing*
+  — that was the root cause. The supervisor (pid 1) correctly had no placeholder.
+- **Resolution ✅** — from the sandbox, `curl https://postman-echo.com/headers -H "Authorization:
+  Bearer <placeholder>"` came back echoed as `"authorization":"Bearer ZZSECRETVALUE99"` — the proxy
+  substituted the placeholder → real secret at egress.
+
+So on 0.0.57 a long-running daemon both **receives** the placeholder and gets it **resolved** at the
+proxy — the two things 0.0.39 failed at. Final confirmation with the *actual* hermes gateway image
+happens at Phase 2 (real deploy); the OpenShell-mechanism gate is cleared.
+
+---
+
+### Original gate procedure (for reference)
+
+The prior 0.0.57 validation only proved
 egress *enforcement* with `curl`; it never proved credential *injection* reaches a long-running
 daemon. On the isolated `/opt/ostest` 0.0.57 stack:
 
