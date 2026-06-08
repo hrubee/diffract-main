@@ -21,6 +21,7 @@
 set -euo pipefail
 
 REGISTRY="${1:-/opt/nemoclaw-diffract/diffract-tools.json}"
+ONLY="${2:-}"   # optional: install just this one tool (live "add"); empty = all
 ROOT=/sandbox/.diffract-tools
 
 if [ ! -f "$REGISTRY" ]; then
@@ -36,6 +37,7 @@ TOOLS="$(node -e '
 const fs = require("fs");
 const reg = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
 for (const t of (reg.tools || [])) {
+  if (process.argv[2] && t.name !== process.argv[2]) continue;
   if (!t.name || !t.repo || !t.entry) {
     process.stderr.write("[diffract-tools] skipping malformed entry: " + JSON.stringify(t) + "\n");
     continue;
@@ -45,7 +47,7 @@ for (const t of (reg.tools || [])) {
   const patch = t.patch || "";
   const build = t.build || "";
   process.stdout.write([t.name, t.repo, ref, patch, build, t.entry, bin].join("\t") + "\n");
-}' "$REGISTRY")"
+}' "$REGISTRY" "$ONLY")"
 
 if [ -z "$TOOLS" ]; then
   echo "[diffract-tools] no tools to install"

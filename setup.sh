@@ -436,6 +436,10 @@ EOF
         install -m 0755 "$PROJECT_ROOT/scripts/diffract-tool-connect.sh" /usr/local/bin/diffract-tool-connect.sh \
             && print_success "  installed diffract-tool-connect.sh"
     fi
+    if [ -f "$PROJECT_ROOT/scripts/diffract-tool-add.sh" ]; then
+        install -m 0755 "$PROJECT_ROOT/scripts/diffract-tool-add.sh" /usr/local/bin/diffract-tool-add.sh \
+            && print_success "  installed diffract-tool-add.sh"
+    fi
     if [ -f "$PROJECT_ROOT/NemoClaw/agents/hermes/diffract-tools.json" ]; then
         mkdir -p /usr/local/share/diffract \
             && install -m 0644 "$PROJECT_ROOT/NemoClaw/agents/hermes/diffract-tools.json" /usr/local/share/diffract/diffract-tools.json

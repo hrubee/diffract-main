@@ -26,6 +26,7 @@
 set -euo pipefail
 
 REGISTRY="${1:-/opt/nemoclaw-diffract/diffract-tools.json}"
+ONLY="${2:-}"   # optional: advertise just this one tool (live "add"); empty = all
 SKILLS_ROOT="${DIFFRACT_SKILLS_ROOT:-/sandbox/.hermes/skills/diffract-tools}"
 
 if [ ! -f "$REGISTRY" ]; then
@@ -42,6 +43,7 @@ const reg = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
 const root = process.argv[2];
 let n = 0;
 for (const t of (reg.tools || [])) {
+  if (process.argv[3] && t.name !== process.argv[3]) continue;
   if (!t.name || !t.bin) continue;
   const sk = t.skill || {};
   const name    = sk.name    || t.name;
@@ -93,7 +95,7 @@ for (const t of (reg.tools || [])) {
   n++;
 }
 console.log("[advertise] " + n + " skill(s) written to " + root);
-' "$REGISTRY" "$SKILLS_ROOT"
+' "$REGISTRY" "$SKILLS_ROOT" "$ONLY"
 
 # Make the skills discoverable + readable by the unprivileged agent user. (At
 # image-build this runs as root; on a live re-run as the sandbox user the chown
