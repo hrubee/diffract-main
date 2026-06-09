@@ -6,6 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { dockerForceRm } from "../adapters/docker";
+import { gatewayJwtConfigArgs } from "./gateway-jwt-config";
 
 const DEFAULT_COMPAT_IMAGE = "ubuntu:24.04";
 const DEFAULT_COMPAT_CONTAINER_NAME = "nemoclaw-openshell-gateway";
@@ -183,7 +184,8 @@ export function buildDockerDriverGatewayLaunch(
     const env = { ...baseEnv, ...gatewayEnv };
     return {
       command: options.gatewayBin,
-      args: [],
+      // 0.0.57+ needs the gateway-JWT TOML via --config; [] on 0.0.39.
+      args: gatewayJwtConfigArgs(options.gatewayBin, options.stateDir),
       env,
       mode: "host",
       processGatewayBin: options.gatewayBin,
@@ -230,6 +232,9 @@ export function buildDockerDriverGatewayLaunch(
   addEnv(args, "DOCKER_HOST", dockerHost);
   addEnv(args, "RUST_LOG", env.RUST_LOG);
   args.push(image, GATEWAY_MOUNT_PATH);
+  // 0.0.57+: append --config <toml> after the gateway binary (the TOML + keys
+  // live under stateDir, which is mounted rw at the same path in the container).
+  args.push(...gatewayJwtConfigArgs(options.gatewayBin, options.stateDir));
 
   return {
     command: "docker",
