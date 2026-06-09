@@ -447,6 +447,15 @@ EOF
         install -m 0755 "$PROJECT_ROOT/scripts/diffract-gateway-watchdog.sh" /usr/local/bin/diffract-gateway-watchdog.sh \
             && print_success "  installed diffract-gateway-watchdog.sh"
     fi
+    # Install the internal-gateway firewall guard. ufw default-deny INPUT can
+    # block the container -> host:8080 gRPC the sandbox supervisor needs (the
+    # 2026-06-09 outage root cause). This idempotent helper adds the
+    # interface-agnostic allow rule; it's invoked at install (below) and by the
+    # watchdog's recovery path. See scripts/diffract-ensure-gateway-firewall.sh.
+    if [ -f "$PROJECT_ROOT/scripts/diffract-ensure-gateway-firewall.sh" ]; then
+        install -m 0755 "$PROJECT_ROOT/scripts/diffract-ensure-gateway-firewall.sh" /usr/local/bin/diffract-ensure-gateway-firewall.sh \
+            && print_success "  installed diffract-ensure-gateway-firewall.sh"
+    fi
     if [ -f "$PROJECT_ROOT/NemoClaw/agents/hermes/diffract-tools.json" ]; then
         mkdir -p /usr/local/share/diffract \
             && install -m 0644 "$PROJECT_ROOT/NemoClaw/agents/hermes/diffract-tools.json" /usr/local/share/diffract/diffract-tools.json
@@ -629,6 +638,14 @@ EOF
     if [ -x /usr/local/bin/diffract-gateway-watchdog.sh ]; then
         systemctl enable diffract-gateway-watchdog.service
         systemctl restart diffract-gateway-watchdog.service
+    fi
+    # Pre-emptively allow the internal container -> gateway gRPC path so that if
+    # ufw is (or later becomes) active with a default-deny policy, it can't
+    # silently wedge the sandbox supervisor. `ufw allow` persists even while ufw
+    # is inactive, so this protects future reboots/toggles too. No-op without ufw.
+    if [ -x /usr/local/bin/diffract-ensure-gateway-firewall.sh ]; then
+        /usr/local/bin/diffract-ensure-gateway-firewall.sh \
+            && print_success "  internal gateway firewall rule ensured"
     fi
     systemctl restart diffractui
 

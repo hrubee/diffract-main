@@ -34,8 +34,22 @@ DOCKER="${DOCKER_PATH:-docker}"
 OPENSHELL="${OPENSHELL_PATH:-openshell}"
 FORWARDER_SERVICE="sandbox-port-forwarder.service"
 HEALTH_URL="http://127.0.0.1:${GATEWAY_PORT}/v1/models"
+# Root-cause guard: a default-deny ufw silently blocks the internal
+# container -> host:8080 gRPC the sandbox supervisor needs, so the gateway never
+# comes up and a plain container restart is futile (it can't fix a firewall).
+# This idempotent helper re-asserts the allow rule; it only mutates ufw when the
+# rule is genuinely missing, so it adds no per-loop churn.
+GATEWAY_FW_SCRIPT="${DIFFRACT_GATEWAY_FW_SCRIPT:-/usr/local/bin/diffract-ensure-gateway-firewall.sh}"
 
 log() { echo "[gateway-watchdog] $*"; }
+
+ensure_gateway_firewall() {
+  [ -x "$GATEWAY_FW_SCRIPT" ] || return 0
+  local out
+  out="$("$GATEWAY_FW_SCRIPT" 2>/dev/null)"
+  [ -n "$out" ] && log "root-cause guard: ${out#\[ensure-gateway-firewall\] }"
+  return 0
+}
 
 sandbox_name() { jq -r '.defaultSandbox' ~/.nemoclaw/sandboxes.json 2>/dev/null; }
 
@@ -86,6 +100,11 @@ while true; do
   fi
 
   recoveries=$((recoveries + 1))
+
+  # First, cheapest recovery step: make sure the firewall isn't the cause. A
+  # restart can't fix a ufw block of the internal gateway gRPC, so assert the
+  # allow rule before the (otherwise futile) restart below. Idempotent.
+  ensure_gateway_firewall
 
   if "$DOCKER" exec "$cid" pgrep -f 'gateway run' >/dev/null 2>&1; then
     log "gateway 8642 unreachable but daemon is up (sandbox=$sb) — rebuilding forwards (attempt ${recoveries}/${MAX_RECOVERIES})"
