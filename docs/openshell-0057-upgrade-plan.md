@@ -4,13 +4,35 @@
 talks to) able to use credential-injected tools (e.g. `ghl`), and convert the network policy from
 advisory to **enforced** (close the raw-socket data-exfil bypass). One upgrade, both wins.
 
-**Why an upgrade is required (not a config tweak):** on 0.0.39 credential injection + the MITM
-egress proxy exist **only inside `openshell sandbox exec` sessions**. The long-running
+**Why an upgrade is required (not a config tweak):** on 0.0.39 the long-running
 `hermes gateway run` daemon has no proxy, no MITM CA, and no `openshell:resolve:` placeholders in
 its env (verified via `/proc/<pid>/environ`) — so the dashboard agent sends the literal
-placeholder → GHL returns `401 Invalid JWT`. The CLI/headless path (`openshell sandbox exec --
-hermes -z`) works because it runs *inside* the injected session. See
-`openshell-egress-enforcement.md` for the egress-enforcement findings; this plan adds the
+placeholder → GHL returns `401 Invalid JWT`.
+
+> **CLARIFICATION (2026-06-10): the exec/headless path DOES work for `ghl` on 0.0.39 — given the
+> named-binary egress policy AND a valid token. The current blocker is a dead token, not OpenShell.**
+> Investigated live. An exec session gets the placeholders (`GHL_PRIVATE_TOKEN=openshell:resolve:...`,
+> `GHL_LOCATION_ID`) AND the full proxy/CA env (`HTTPS_PROXY=http://10.200.0.1:3128`,
+> `NODE_EXTRA_CA_CERTS`). The `hermes` sandbox has a correct egress rule `ghl-api`
+> (`services.leadconnectorhq.com:443` `access: full`, binary `/usr/local/bin/node`), and `ghl` runs
+> as node, so attribution succeeds — the gateway log shows
+> `NET:OPEN ALLOWED /usr/local/bin/node(PID) -> services.leadconnectorhq.com:443 [policy:ghl-api]`
+> then `HTTP:GET ALLOWED GET .../contacts/`. The request reaches GHL; GHL returns `401 Invalid JWT`.
+> On 2026-06-08 this *exact* path returned real CRM data and credential substitution was confirmed
+> (see [[egress-approval-broken-openshell-attribution]]), so the pipeline works — the one thing that
+> changed is the token. **Conclusion: the stored GHL Private Integration Token is revoked/rotated/
+> expired.** Fix: re-connect a fresh token (Tools tab or `openshell provider update ghl`), then a
+> `ghl contacts list` via exec should return real data again — no upgrade needed for the headless path.
+> (The 2026-06-06 "attribution always fail-closes" finding applies to the `-` wildcard / unnamed
+> binary; naming the specific binary path works on 0.0.39.)
+>
+> **Consequence for the cutover:** 0.0.57 is needed **only for ghl-in-CHAT** (the always-on
+> `hermes gateway run` daemon still has no placeholder injection — that part of the premise stands).
+> It is NOT needed for headless ghl. GATE before the destructive cutover regardless: confirm a
+> *valid* token first (the provider store is write-only and can't be read back to test) — don't cut
+> over only to hit a `401` from a dead token.
+
+See `openshell-egress-enforcement.md` for the egress-enforcement findings; this plan adds the
 gateway-credential-injection angle that the upgrade must also fix.
 
 **Current state**
