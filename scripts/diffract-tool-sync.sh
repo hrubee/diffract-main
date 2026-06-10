@@ -68,6 +68,10 @@ case "$MODE" in
     connected_tools | paste -sd, - 2>/dev/null
     ;;
   egress)
+    # Exit non-zero if ANY tool's egress failed to apply, so the caller (the
+    # deploy route) can surface it instead of reporting a clean deploy while a
+    # tool's API stays blocked. rc stays 0 only if every endpoint applied.
+    rc=0
     for t in $(connected_tools); do
       binargs=(); while IFS= read -r b; do [ -n "$b" ] && binargs+=(--binary "$b"); done < <(tool_binaries "$t")
       while IFS= read -r h; do
@@ -79,9 +83,11 @@ case "$MODE" in
           echo "[tool-sync] egress allowed: $t -> $h"
         else
           echo "[tool-sync] WARN: failed to apply egress for $t -> $h"
+          rc=1
         fi
       done < <(tool_hosts "$t")
     done
+    exit $rc
     ;;
   list)
     for t in $(connected_tools); do

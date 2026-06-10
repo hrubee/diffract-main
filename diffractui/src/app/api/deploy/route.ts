@@ -1,5 +1,5 @@
 export const dynamic = "force-dynamic";
-import { spawn, execSync } from "child_process";
+import { spawn, execSync, exec, execFile } from "child_process";
 import { existsSync } from "fs";
 import { cookies } from "next/headers";
 import { SESSION_COOKIE, verifySessionToken } from "@/lib/auth";
@@ -153,24 +153,82 @@ export async function GET(request: Request) {
         }
       });
 
-      proc.on("close", (code) => {
-        if (code === 0) {
-          const sName = detectedSandboxName || "my-assistant";
-          // Restart the port forwarder systemd service
-          import("child_process").then(({ exec }) => {
-            exec(`sudo systemctl restart sandbox-port-forwarder`);
-            // Apply each connected tool's egress (host + attributed binary, from
-            // the registry) to the fresh sandbox so the tools attached at create
-            // can reach their APIs. Registry-driven — covers any connected tool.
-            exec(`/usr/local/bin/diffract-tool-sync.sh egress ${sName}`);
-          });
-
-          send("done", "Deployment complete", {
-            sandboxName: sName,
-          });
-        } else {
+      proc.on("close", async (code) => {
+        if (code !== 0) {
           send("error", `Deployment failed with exit code ${code}`);
+          if (!isClosed) {
+            isClosed = true;
+            controller.close();
+          }
+          return;
         }
+
+        const sName = detectedSandboxName || "my-assistant";
+        if (!detectedSandboxName) {
+          send(
+            "log",
+            `WARN: could not detect the sandbox name from onboard output; assuming "${sName}". Tool egress below may target the wrong sandbox — verify it succeeds.`,
+          );
+        }
+
+        // Restart the port forwarder systemd service (fast; log if it fails so a
+        // dead chat backend isn't silent).
+        exec(`sudo systemctl restart sandbox-port-forwarder`, (err) => {
+          if (err) send("log", `WARN: port forwarder restart failed: ${err.message}`);
+        });
+
+        // Apply egress (host allowlist + attributed binary, from the registry) for
+        // EVERY connected tool to the fresh sandbox, so a tool attached at create
+        // can actually reach its API. Registry-driven — covers any tool we add.
+        //
+        // This is AWAITED and STREAMED on purpose: a tool's credential is injected
+        // at create, but egress is applied here. If this step silently failed, the
+        // deploy would report success while that tool's API stays blocked in chat
+        // until the next recreate. So we surface its per-tool output and exit code
+        // into the deploy log, and use execFile (no shell) so the sandbox name
+        // can't be used for shell injection.
+        await new Promise<void>((resolve) => {
+          if (!SANDBOX_NAME_RE.test(sName)) {
+            send(
+              "log",
+              `WARN: sandbox name "${sName}" is not a safe identifier; skipping tool egress. Connected tools will be unreachable in chat until the next recreate.`,
+            );
+            return resolve();
+          }
+          const eg = execFile(
+            "/usr/local/bin/diffract-tool-sync.sh",
+            ["egress", sName],
+            { timeout: 120000 },
+          );
+          eg.stdout?.on("data", (d: Buffer) => {
+            for (const line of d.toString().split("\n").filter(Boolean)) send("log", line);
+          });
+          eg.stderr?.on("data", (d: Buffer) => {
+            for (const line of d.toString().split("\n").filter(Boolean)) send("log", `WARN: ${line}`);
+          });
+          eg.on("close", (egCode) => {
+            if (egCode === 0) {
+              send("log", "Tool egress applied for all connected tools.");
+            } else {
+              send(
+                "log",
+                `WARN: tool egress exited ${egCode} — one or more connected tools may be unreachable in chat until the next recreate. Re-run: diffract-tool-sync.sh egress ${sName}`,
+              );
+            }
+            resolve();
+          });
+          eg.on("error", (e) => {
+            send(
+              "log",
+              `WARN: could not run tool egress (${e.message}); connected tools may be unreachable in chat until the next recreate.`,
+            );
+            resolve();
+          });
+        });
+
+        send("done", "Deployment complete", {
+          sandboxName: sName,
+        });
         if (!isClosed) {
           isClosed = true;
           controller.close();
