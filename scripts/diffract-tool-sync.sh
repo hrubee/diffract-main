@@ -20,18 +20,39 @@
 # ─────────────────────────────────────────────────────────────────────────
 set -u
 REGISTRY="${DIFFRACT_TOOLS_REGISTRY:-/usr/local/share/diffract/diffract-tools.json}"
+# Gateway-INDEPENDENT list of connected tools, maintained by the connect flow
+# (diffract-tool-connect.sh). The deploy route computes `providers` BEFORE the
+# onboard starts/reuses the gateway — and a recovery deploy (the common case)
+# runs with the gateway DOWN — so the connected set must NOT depend on
+# `openshell provider get`, or tools would silently fail to attach at create.
+CONNECTED_FILE="${DIFFRACT_CONNECTED_TOOLS:-/var/lib/diffract/connected-tools}"
 OPENSHELL="${OPENSHELL_PATH:-openshell}"
 MODE="${1:-providers}"
 SANDBOX="${2:-${DIFFRACT_SANDBOX:-hermes}}"
 
-if ! command -v jq >/dev/null 2>&1 || [ ! -f "$REGISTRY" ]; then
-  [ "$MODE" = "providers" ] && echo ""    # empty list = attach nothing (safe default)
+if ! command -v jq >/dev/null 2>&1; then
+  [ "$MODE" = "providers" ] && echo ""
   exit 0
 fi
 
-# A registry tool is "connected" iff an OpenShell provider with its name exists.
+# Connected tools = the persistent connect-flow list (gateway-independent),
+# filtered to entries still in the registry when the registry is available.
+# Falls back to registry ∩ providers (needs the gateway) only when no list file
+# exists yet — e.g. a tool connected out-of-band before this mechanism shipped.
 connected_tools() {
   local t
+  if [ -s "$CONNECTED_FILE" ]; then
+    while IFS= read -r t; do
+      t="$(printf '%s' "$t" | tr -d '[:space:]')"; [ -z "$t" ] && continue
+      if [ -f "$REGISTRY" ]; then
+        jq -e --arg n "$t" '.tools[]|select(.name==$n)' "$REGISTRY" >/dev/null 2>&1 && echo "$t"
+      else
+        echo "$t"
+      fi
+    done < "$CONNECTED_FILE" | sort -u
+    return
+  fi
+  [ -f "$REGISTRY" ] || return 0
   for t in $(jq -r '.tools[].name' "$REGISTRY" 2>/dev/null); do
     "$OPENSHELL" provider get "$t" >/dev/null 2>&1 && echo "$t"
   done

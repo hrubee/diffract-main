@@ -29,6 +29,12 @@ set -euo pipefail
 SANDBOX="${1:-}"
 TOOL="${2:-}"
 REGISTRY="${3:-${DIFFRACT_TOOLS_REGISTRY:-}}"
+# Gateway-INDEPENDENT record of which tools are connected. The deploy route reads
+# this (via diffract-tool-sync.sh) to decide which providers to attach at sandbox
+# CREATE — and it computes that list BEFORE onboard starts the gateway, so the
+# "connected" set must not depend on `openshell provider get`. We append here, on
+# a successful connect, so the list survives a gateway-down recovery deploy.
+CONNECTED_FILE="${DIFFRACT_CONNECTED_TOOLS:-/var/lib/diffract/connected-tools}"
 
 if [ -z "$SANDBOX" ] || [ -z "$TOOL" ]; then
   echo "usage: diffract-tool-connect.sh <sandbox> <tool> [registry.json]" >&2
@@ -108,4 +114,25 @@ for host in "${API_HOSTS[@]:-}"; do
   echo "[connect]   allowed ${host} (binaries: ${BINARIES[*]:-any})"
 done
 
+# Record this tool as connected (gateway-independent), so the next deploy attaches
+# it at sandbox CREATE — required for chat use on OpenShell >= 0.0.57, where a
+# tool's credential injects into the long-running agent daemon only at create.
+# Idempotent: only append if not already present.
+if mkdir -p "$(dirname "$CONNECTED_FILE")" 2>/dev/null; then
+  if [ ! -f "$CONNECTED_FILE" ] || ! grep -qxF "$TOOL" "$CONNECTED_FILE" 2>/dev/null; then
+    echo "$TOOL" >> "$CONNECTED_FILE" \
+      && echo "[connect] recorded '$TOOL' in $CONNECTED_FILE (attached at next create)"
+  fi
+else
+  echo "[connect] WARN: could not write $CONNECTED_FILE — '$TOOL' may not auto-attach at next create" >&2
+fi
+
 echo "[connect] done — '$TOOL' is wired to sandbox '$SANDBOX'. The secret stays host-side; the agent sees only placeholders."
+
+cat >/dev/null <<'NOTE'
+NOTE: connecting a tool to an ALREADY-RUNNING sandbox makes it usable in new exec
+(headless) sessions immediately, but NOT in the chat agent — the chat daemon's env
+is fixed at sandbox create on OpenShell >= 0.0.57. To use a newly-connected tool in
+chat, recreate the sandbox (the deploy/onboard flow re-attaches it from the record
+above). Likewise, rotating a connected tool's token requires a recreate to reach chat.
+NOTE
