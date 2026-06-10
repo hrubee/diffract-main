@@ -69,6 +69,7 @@ export async function GET(request: Request) {
     custom: "COMPATIBLE_API_KEY",
   };
 
+  const credKey = credentialMap[provider] || "COMPATIBLE_API_KEY";
   const env = {
     ...process.env,
     NEMOCLAW_NON_INTERACTIVE: "1",
@@ -79,7 +80,15 @@ export async function GET(request: Request) {
     NEMOCLAW_AGENT: "hermes",
     NEMOCLAW_POLICY_PRESETS: policies,
     NEMOCLAW_IGNORE_RUNTIME_RESOURCES: "1",
-    [credentialMap[provider] || "COMPATIBLE_API_KEY"]: apiKey,
+    // Fall back to the host key when the form field is blank. A blank apiKey must
+    // NOT blank out the inherited host credential (e.g. NVIDIA_API_KEY in
+    // /etc/diffractui.env): the model-router credential is injected into the agent
+    // only at sandbox create and only if present at onboard time, so blanking it
+    // leaves the agent with no inference credential ("No inference provider
+    // configured") even though the gateway route stays healthy. (Keeping this as a
+    // computed property also preserves env's string-index type for the env.NEMOCLAW_*
+    // assignments below.)
+    [credKey]: apiKey || process.env[credKey] || "",
   };
 
   if (sandboxName) env.NEMOCLAW_SANDBOX_NAME = sandboxName;
