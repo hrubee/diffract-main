@@ -1,5 +1,5 @@
 export const dynamic = "force-dynamic";
-import { spawn } from "child_process";
+import { spawn, execSync, exec, execFile } from "child_process";
 import { existsSync } from "fs";
 import { cookies } from "next/headers";
 import { SESSION_COOKIE, verifySessionToken } from "@/lib/auth";
@@ -69,6 +69,7 @@ export async function GET(request: Request) {
     custom: "COMPATIBLE_API_KEY",
   };
 
+  const credKey = credentialMap[provider] || "COMPATIBLE_API_KEY";
   const env = {
     ...process.env,
     NEMOCLAW_NON_INTERACTIVE: "1",
@@ -79,7 +80,15 @@ export async function GET(request: Request) {
     NEMOCLAW_AGENT: "hermes",
     NEMOCLAW_POLICY_PRESETS: policies,
     NEMOCLAW_IGNORE_RUNTIME_RESOURCES: "1",
-    [credentialMap[provider] || "COMPATIBLE_API_KEY"]: apiKey,
+    // Fall back to the host key when the form field is blank. A blank apiKey must
+    // NOT blank out the inherited host credential (e.g. NVIDIA_API_KEY in
+    // /etc/diffractui.env): the model-router credential is injected into the agent
+    // only at sandbox create and only if present at onboard time, so blanking it
+    // leaves the agent with no inference credential ("No inference provider
+    // configured") even though the gateway route stays healthy. (Keeping this as a
+    // computed property also preserves env's string-index type for the env.NEMOCLAW_*
+    // assignments below.)
+    [credKey]: apiKey || process.env[credKey] || "",
   };
 
   if (sandboxName) env.NEMOCLAW_SANDBOX_NAME = sandboxName;
@@ -87,6 +96,23 @@ export async function GET(request: Request) {
   if (telegramToken) env.TELEGRAM_BOT_TOKEN = telegramToken;
   if (discordToken) env.DISCORD_BOT_TOKEN = discordToken;
   if (slackToken) env.SLACK_BOT_TOKEN = slackToken;
+
+  // Diffract universal-tool infra: attach EVERY connected tool (any CLI in the
+  // registry that has a provider) at sandbox CREATE so the chat agent can use it.
+  // OpenShell >= 0.0.57 injects a tool's credential into the long-running agent
+  // daemon only at create, so attaching after create reaches exec sessions but
+  // not chat. The list is computed from the registry (diffract-tool-sync.sh) —
+  // adding a tool needs no code here. Egress for each is applied after onboard.
+  try {
+    const connected = execSync("/usr/local/bin/diffract-tool-sync.sh providers", {
+      encoding: "utf8",
+      timeout: 15000,
+    }).trim();
+    if (connected) env.NEMOCLAW_SANDBOX_EXTRA_PROVIDERS = connected;
+  } catch {
+    // sync helper missing or gateway not yet up — deploy proceeds; tools can be
+    // wired on a later recreate once connected.
+  }
 
   const encoder = new TextEncoder();
 
@@ -108,7 +134,7 @@ export async function GET(request: Request) {
       send("log", "Starting Diffract deployment...");
       send("log", `Provider: ${provider}, Model: ${model}`);
 
-      const proc = spawn(`${DIFFRACT} onboard --no-gpu`, [], {
+      const proc = spawn(`${DIFFRACT} onboard --no-gpu --agent hermes`, [], {
         env,
         shell: true,
       });
@@ -136,20 +162,82 @@ export async function GET(request: Request) {
         }
       });
 
-      proc.on("close", (code) => {
-        if (code === 0) {
-          const sName = detectedSandboxName || "my-assistant";
-          // Restart the port forwarder systemd service
-          import("child_process").then(({ exec }) => {
-            exec(`sudo systemctl restart sandbox-port-forwarder`);
-          });
-          
-          send("done", "Deployment complete", {
-            sandboxName: sName,
-          });
-        } else {
+      proc.on("close", async (code) => {
+        if (code !== 0) {
           send("error", `Deployment failed with exit code ${code}`);
+          if (!isClosed) {
+            isClosed = true;
+            controller.close();
+          }
+          return;
         }
+
+        const sName = detectedSandboxName || "my-assistant";
+        if (!detectedSandboxName) {
+          send(
+            "log",
+            `WARN: could not detect the sandbox name from onboard output; assuming "${sName}". Tool egress below may target the wrong sandbox — verify it succeeds.`,
+          );
+        }
+
+        // Restart the port forwarder systemd service (fast; log if it fails so a
+        // dead chat backend isn't silent).
+        exec(`sudo systemctl restart sandbox-port-forwarder`, (err) => {
+          if (err) send("log", `WARN: port forwarder restart failed: ${err.message}`);
+        });
+
+        // Apply egress (host allowlist + attributed binary, from the registry) for
+        // EVERY connected tool to the fresh sandbox, so a tool attached at create
+        // can actually reach its API. Registry-driven — covers any tool we add.
+        //
+        // This is AWAITED and STREAMED on purpose: a tool's credential is injected
+        // at create, but egress is applied here. If this step silently failed, the
+        // deploy would report success while that tool's API stays blocked in chat
+        // until the next recreate. So we surface its per-tool output and exit code
+        // into the deploy log, and use execFile (no shell) so the sandbox name
+        // can't be used for shell injection.
+        await new Promise<void>((resolve) => {
+          if (!SANDBOX_NAME_RE.test(sName)) {
+            send(
+              "log",
+              `WARN: sandbox name "${sName}" is not a safe identifier; skipping tool egress. Connected tools will be unreachable in chat until the next recreate.`,
+            );
+            return resolve();
+          }
+          const eg = execFile(
+            "/usr/local/bin/diffract-tool-sync.sh",
+            ["egress", sName],
+            { timeout: 120000 },
+          );
+          eg.stdout?.on("data", (d: Buffer) => {
+            for (const line of d.toString().split("\n").filter(Boolean)) send("log", line);
+          });
+          eg.stderr?.on("data", (d: Buffer) => {
+            for (const line of d.toString().split("\n").filter(Boolean)) send("log", `WARN: ${line}`);
+          });
+          eg.on("close", (egCode) => {
+            if (egCode === 0) {
+              send("log", "Tool egress applied for all connected tools.");
+            } else {
+              send(
+                "log",
+                `WARN: tool egress exited ${egCode} — one or more connected tools may be unreachable in chat until the next recreate. Re-run: diffract-tool-sync.sh egress ${sName}`,
+              );
+            }
+            resolve();
+          });
+          eg.on("error", (e) => {
+            send(
+              "log",
+              `WARN: could not run tool egress (${e.message}); connected tools may be unreachable in chat until the next recreate.`,
+            );
+            resolve();
+          });
+        });
+
+        send("done", "Deployment complete", {
+          sandboxName: sName,
+        });
         if (!isClosed) {
           isClosed = true;
           controller.close();
