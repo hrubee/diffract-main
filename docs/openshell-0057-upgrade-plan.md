@@ -64,6 +64,24 @@ So on 0.0.57 a long-running daemon both **receives** the placeholder and gets it
 proxy — the two things 0.0.39 failed at. Final confirmation with the *actual* hermes gateway image
 happens at Phase 2 (real deploy); the OpenShell-mechanism gate is cleared.
 
+### ✅ ghl-in-chat end-to-end with the REAL provider — PASSED (2026-06-10)
+
+The Phase-0 result above used a *synthetic* provider (`TEST_TOKEN`) against postman-echo. Before
+committing to the live cutover, the **real GHL provider** was validated end-to-end in the isolated
+`os057-lab` dind (own docker daemon — zero live-box impact), closing the last unverified assumption:
+
+- **Daemon injection (the 0.0.39 gap), real provider:** read the long-running workload daemon's
+  (`sleep infinity`, pid 24) `/proc/<pid>/environ` — it has the FULL set: `GHL_PRIVATE_TOKEN` +
+  `GHL_LOCATION_ID` placeholders, `HTTPS_PROXY=http://10.200.0.1:3128` (+ all proxy vars),
+  `NODE_EXTRA_CA_CERTS` + `SSL_CERT_FILE` (the MITM CA). On 0.0.39 the daemon had *none* of this.
+- **Substitution + egress, real provider + real host:** a real `GET services.leadconnectorhq.com/contacts/`
+  from the workload netns (placeholder Bearer + placeholder locationId, egress policy binary
+  `/usr/bin/curl`) returned **real CRM data** (real contacts, `locationId` matched, `total: 58379`).
+
+So on 0.0.57 the always-on daemon gets the complete credential+proxy+CA injection AND substitution
+works for the real GHL provider — i.e. **ghl-in-chat will work after the cutover.** Lab teardown:
+provider/sandbox deleted, dind stopped, token files removed; live demo confirmed untouched (8642=200).
+
 ---
 
 ### Original gate procedure (for reference)
