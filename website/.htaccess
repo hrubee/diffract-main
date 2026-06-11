@@ -1,0 +1,13 @@
+# Diffract marketing site — Hostinger shared (LiteSpeed) config.
+
+# Never serve the Dodo secret or any .env, even if one ends up inside public_html.
+<FilesMatch "(^\.diffract-dodo\.env|\.env)$">
+  Require all denied
+</FilesMatch>
+
+# Pretty URL: /api/checkout -> /api/checkout.php (bonus; signup.html already
+# posts directly to /api/checkout.php so this is not load-bearing).
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteRule ^api/checkout/?$ api/checkout.php [L]
+</IfModule>

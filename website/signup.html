@@ -275,7 +275,7 @@
     var payload = { workspace: state.slug, email: emailInput.value.trim(), name: document.getElementById('name').value.trim() };
     submitBtn.disabled = true; submitBtn.textContent = 'Redirecting to checkout…';
     try {
-      var res = await fetch('/api/checkout', {
+      var res = await fetch('/api/checkout.php', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
       });
       var data = await res.json().catch(function(){ return {}; });

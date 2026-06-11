@@ -70,7 +70,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_POST(self):
-        if self.path.rstrip("/") != "/api/checkout":
+        if self.path.rstrip("/") not in ("/api/checkout", "/api/checkout.php"):
             return self.send_error(404, "Not Found")
         try:
             n = int(self.headers.get("Content-Length", 0))
