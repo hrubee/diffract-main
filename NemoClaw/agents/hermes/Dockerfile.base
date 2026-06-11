@@ -172,3 +172,30 @@ RUN set -eu; \
 
 ENV PATH="/usr/local/bin:/opt/hermes/.venv/bin:${PATH}"
 RUN /usr/local/bin/hermes --version
+
+# ── Headless Chromium for the agent's browser tools (all sandboxes, default) ──
+# Hermes ships the browser *tooling* (agent-browser -> Playwright, installed by
+# the npm ci above) but the actual Chromium binary is a separate Playwright
+# download. The upstream hermes/Dockerfile runs this install; this base build
+# re-implements the dependency install and previously OMITTED it, so every
+# sandbox had the browser code with no browser binary. agent-browser then tried
+# to download Chromium at first use — which fails, because OpenShell 0.0.57
+# gives the sandbox no egress except the L7 proxy. Bake the headless shell here
+# (mirrors hermes/Dockerfile) so browser tools work out of the box, offline.
+#
+# PLAYWRIGHT_BROWSERS_PATH puts the browser under /opt/hermes — a path the
+# sandboxed agent can READ (an arbitrary /opt/* path is not readable under the
+# OpenShell fs confinement) — and is the same env Hermes reads at runtime to
+# locate it (tools/browser_tool.py). The privilege step-down (gosu/setpriv,
+# no --reset-env) preserves this ENV through to the agent process.
+#
+# `--with-deps` apt-installs Chromium's shared libs (libnss3, libgbm, ...).
+# Those are marked manually-installed, so the layer Dockerfile's later
+# `apt-get autoremove --purge` keeps them. `--only-shell` = chromium-headless-
+# shell (no full headed Chrome — smaller, headless is all the agent uses).
+# NOTE: this bakes the browser; routing it through the L7 proxy + trusting the
+# proxy CA (its own NSS store) is a separate runtime concern — see start.sh.
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/hermes/.playwright
+RUN npx playwright install --with-deps chromium --only-shell \
+    && chmod -R a+rX /opt/hermes/.playwright \
+    && rm -rf /var/lib/apt/lists/*
