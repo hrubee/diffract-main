@@ -447,14 +447,6 @@ EOF
         install -m 0755 "$PROJECT_ROOT/scripts/diffract-gateway-watchdog.sh" /usr/local/bin/diffract-gateway-watchdog.sh \
             && print_success "  installed diffract-gateway-watchdog.sh"
     fi
-    # Config guard: the hermes dashboard runs as root and rewrites the agent
-    # config.yaml root-owned; the sandbox-user gateway then cannot read it and
-    # falls back to a no-inference default (HTTP 500 No inference provider). This
-    # guard keeps config.yaml group=sandbox (setgid + chgrp) so it stays readable.
-    if [ -f "$PROJECT_ROOT/scripts/diffract-config-guard.sh" ]; then
-        install -m 0755 "$PROJECT_ROOT/scripts/diffract-config-guard.sh" /usr/local/bin/diffract-config-guard.sh \
-            && print_success "  installed diffract-config-guard.sh"
-    fi
     if [ -f "$PROJECT_ROOT/NemoClaw/agents/hermes/diffract-tools.json" ]; then
         mkdir -p /usr/local/share/diffract \
             && install -m 0644 "$PROJECT_ROOT/NemoClaw/agents/hermes/diffract-tools.json" /usr/local/share/diffract/diffract-tools.json
@@ -588,7 +580,7 @@ docker exec $CONTAINER_ID /opt/hermes/.venv/bin/python -c "import ptyprocess" 2>
   || docker exec $CONTAINER_ID /opt/hermes/.venv/bin/python -m pip install "ptyprocess==0.7.0" || true
 
 echo "Starting Hermes dashboard (embedded TUI chat, OpenShell inference) in container..."
-docker exec -e HERMES_WEB_DIST=/opt/hermes/web_dist $CONTAINER_ID \
+docker exec -u sandbox -e HERMES_WEB_DIST=/opt/hermes/web_dist $CONTAINER_ID \
   bash -c '. /tmp/nemoclaw-proxy-env.sh 2>/dev/null; exec /opt/hermes/.venv/bin/python /usr/local/bin/hermes dashboard --host 0.0.0.0 --skip-build --insecure --tui'
 EOF
     chmod +x /usr/local/bin/sandbox-port-forwarder.sh
@@ -631,35 +623,12 @@ RestartSec=10
 WantedBy=multi-user.target
 EOF
 
-    # Config guard service (keep the Hermes config.yaml readable by the gateway).
-    cat <<EOF > /etc/systemd/system/diffract-config-guard.service
-[Unit]
-Description=Diffract Config Guard (keep Hermes config.yaml readable by the sandbox gateway)
-After=docker.service
-Wants=docker.service
-
-[Service]
-Type=simple
-User=root
-Environment=PATH=$PATH
-ExecStart=/usr/local/bin/diffract-config-guard.sh
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
     systemctl daemon-reload
     systemctl enable sandbox-port-forwarder.service
     systemctl restart sandbox-port-forwarder.service
     if [ -x /usr/local/bin/diffract-gateway-watchdog.sh ]; then
         systemctl enable diffract-gateway-watchdog.service
         systemctl restart diffract-gateway-watchdog.service
-    fi
-    if [ -x /usr/local/bin/diffract-config-guard.sh ]; then
-        systemctl enable diffract-config-guard.service
-        systemctl restart diffract-config-guard.service
     fi
     systemctl restart diffractui
 
