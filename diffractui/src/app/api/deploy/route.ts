@@ -134,7 +134,7 @@ export async function GET(request: Request) {
       send("log", "Starting Diffract deployment...");
       send("log", `Provider: ${provider}, Model: ${model}`);
 
-      const proc = spawn(`${DIFFRACT} onboard --no-gpu --agent hermes`, [], {
+      const proc = spawn(`${DIFFRACT} onboard --no-gpu --agent hermes --recreate-sandbox`, [], {
         env,
         shell: true,
       });
