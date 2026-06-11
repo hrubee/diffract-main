@@ -638,6 +638,11 @@ configure_agent_browser() {
     [ "$(id -u)" -eq 0 ] && chown -R gateway:sandbox "${_gw_home}/.pki" 2>/dev/null
     chmod -R u+rwX,g+rX "${_gw_home}/.pki" 2>/dev/null
   ) || true
+  # Redirect the gateway's HOME to the nssdb location ONLY if the db now exists.
+  # Otherwise leave the launch env untouched — fail-safe: a cert-setup failure
+  # must never change how the gateway starts (HOME-breakage is the chat-outage
+  # class). The root-posture launch reads _AGENT_BROWSER_HOME conditionally.
+  [ -f "${_nssdb}/cert9.db" ] && _AGENT_BROWSER_HOME="$_gw_home"
   return 0
 }
 
@@ -728,10 +733,13 @@ prepare_restricted_log /tmp/gateway.log gateway:gateway 600
 validate_tmp_permissions
 
 # Start Hermes gateway. Messaging egress goes directly through OpenShell.
-# HOME=/sandbox so the gateway's Chromium reads the NSS db that
-# configure_agent_browser populated at /sandbox/.pki/nssdb (matches the
-# non-root posture above, which already runs the gateway with HOME=/sandbox).
-HERMES_HOME="${HERMES_DIR}" HOME=/sandbox \
+# HOME=/sandbox is prefixed ONLY when configure_agent_browser populated the
+# Chromium NSS db (so the gateway's browser reads /sandbox/.pki/nssdb); this
+# matches the non-root posture, which already runs with HOME=/sandbox. When the
+# browser/cert setup didn't run, the prefix expands to nothing and the launch
+# env is byte-identical to the original — a fail-safe for the production path.
+# shellcheck disable=SC2086  # conditional env-assignment prefix must stay unquoted
+HERMES_HOME="${HERMES_DIR}" ${_AGENT_BROWSER_HOME:+HOME="${_AGENT_BROWSER_HOME}"} \
   nohup "${STEP_DOWN_PREFIX_GATEWAY[@]}" sh -c 'umask 0007; exec "$@" >/tmp/gateway.log 2>&1' sh "$HERMES" gateway run &
 GATEWAY_PID=$!
 echo "[gateway] hermes gateway launched as 'gateway' user (pid $GATEWAY_PID)" >&2
