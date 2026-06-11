@@ -193,9 +193,16 @@ RUN /usr/local/bin/hermes --version
 # Those are marked manually-installed, so the layer Dockerfile's later
 # `apt-get autoremove --purge` keeps them. `--only-shell` = chromium-headless-
 # shell (no full headed Chrome — smaller, headless is all the agent uses).
-# NOTE: this bakes the browser; routing it through the L7 proxy + trusting the
-# proxy CA (its own NSS store) is a separate runtime concern — see start.sh.
+#
+# libnss3-tools provides `certutil`, used at runtime by start.sh to import the
+# OpenShell L7-proxy MITM CA into the agent's Chromium NSS store — Chromium
+# validates against its own NSS db, not SSL_CERT_FILE, so without this every
+# HTTPS navigation through the proxy fails with ERR_CERT_AUTHORITY_INVALID.
+# NOTE: this bakes the browser + cert tooling; the runtime proxy routing +
+# CA import live in start.sh (configure_agent_browser).
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/hermes/.playwright
-RUN npx playwright install --with-deps chromium --only-shell \
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libnss3-tools \
+    && npx playwright install --with-deps chromium --only-shell \
     && chmod -R a+rX /opt/hermes/.playwright \
     && rm -rf /var/lib/apt/lists/*

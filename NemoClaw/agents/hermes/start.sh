@@ -601,6 +601,46 @@ PYPLACEHOLDERS
   [ "$_write_rc" -eq 0 ] || return "$_write_rc"
 }
 
+# ── Headless-browser egress wiring (baked Chromium) ───────────────
+# The base image bakes a headless Chromium (Playwright) for the agent's browser
+# tools. Two runtime steps make it usable inside the OpenShell sandbox:
+#   1) Route through the L7 proxy. Playwright's Chromium does NOT honour the
+#      HTTPS_PROXY env, so pass --proxy-server explicitly; without it the netns
+#      blocks all direct egress and every navigation fails.
+#   2) Trust the proxy's MITM CA. Chromium validates against its OWN NSS store
+#      (~/.pki/nssdb), not SSL_CERT_FILE — so import the OpenShell CA there.
+#      Strict: real cert validation against the proxy CA (no --ignore-cert).
+# Fully guarded and best-effort: a browser-setup failure can NEVER stop the
+# gateway launching. No-ops cleanly on an older base lacking certutil/Chromium.
+# The nssdb lives under the gateway user's home (/sandbox)/.pki/nssdb; the
+# gateway is launched with HOME=/sandbox so Chromium reads the same db.
+_OPENSHELL_CA="${SSL_CERT_FILE:-/etc/openshell-tls/ca-bundle.pem}"
+configure_agent_browser() {
+  # 1) Proxy routing + container-safe flags. Only set when unset so an explicit
+  #    onboarding value wins. browser_tool.py keeps a pre-set AGENT_BROWSER_ARGS
+  #    (it only injects --no-sandbox itself when the var is absent).
+  if [ -z "${AGENT_BROWSER_ARGS:-}" ] && [ -n "${_PROXY_URL:-}" ]; then
+    export AGENT_BROWSER_ARGS="--proxy-server=${_PROXY_URL},--no-sandbox,--disable-dev-shm-usage"
+  fi
+  # 2) Import the proxy CA into the gateway user's Chromium NSS db (strict).
+  command -v certutil >/dev/null 2>&1 || return 0
+  [ -r "$_OPENSHELL_CA" ] || return 0
+  _gw_home="$(getent passwd gateway 2>/dev/null | cut -d: -f6)"
+  _gw_home="${_gw_home:-/sandbox}"
+  _nssdb="${_gw_home}/.pki/nssdb"
+  (
+    set +e
+    mkdir -p "$_nssdb" || exit 0
+    if [ ! -f "${_nssdb}/cert9.db" ]; then
+      certutil -d "sql:${_nssdb}" -N --empty-password >/dev/null 2>&1 || exit 0
+    fi
+    certutil -d "sql:${_nssdb}" -A -n openshell-proxy -t "C,," -i "$_OPENSHELL_CA" >/dev/null 2>&1
+    [ "$(id -u)" -eq 0 ] && chown -R gateway:sandbox "${_gw_home}/.pki" 2>/dev/null
+    chmod -R u+rwX,g+rX "${_gw_home}/.pki" 2>/dev/null
+  ) || true
+  return 0
+}
+
 # ── Main ─────────────────────────────────────────────────────────
 
 # Migrate legacy symlink layout before anything else reads .hermes
@@ -625,6 +665,7 @@ if [ "$(id -u)" -ne 0 ]; then
   fi
   refresh_hermes_provider_placeholders
   configure_messaging_channels
+  configure_agent_browser   # HOME is already /sandbox in this posture
 
   if [ ${#NEMOCLAW_CMD[@]} -gt 0 ]; then
     exec "${NEMOCLAW_CMD[@]}"
@@ -669,6 +710,7 @@ export HERMES_HOME="${HERMES_DIR}"
 verify_config_integrity "${HERMES_DIR}" "${HERMES_HASH_FILE}"
 refresh_hermes_provider_placeholders
 configure_messaging_channels
+configure_agent_browser   # gateway is launched below with HOME=/sandbox
 
 if [ ${#NEMOCLAW_CMD[@]} -gt 0 ]; then
   exec "${STEP_DOWN_PREFIX_SANDBOX[@]}" "${NEMOCLAW_CMD[@]}"
@@ -686,7 +728,10 @@ prepare_restricted_log /tmp/gateway.log gateway:gateway 600
 validate_tmp_permissions
 
 # Start Hermes gateway. Messaging egress goes directly through OpenShell.
-HERMES_HOME="${HERMES_DIR}" \
+# HOME=/sandbox so the gateway's Chromium reads the NSS db that
+# configure_agent_browser populated at /sandbox/.pki/nssdb (matches the
+# non-root posture above, which already runs the gateway with HOME=/sandbox).
+HERMES_HOME="${HERMES_DIR}" HOME=/sandbox \
   nohup "${STEP_DOWN_PREFIX_GATEWAY[@]}" sh -c 'umask 0007; exec "$@" >/tmp/gateway.log 2>&1' sh "$HERMES" gateway run &
 GATEWAY_PID=$!
 echo "[gateway] hermes gateway launched as 'gateway' user (pid $GATEWAY_PID)" >&2
