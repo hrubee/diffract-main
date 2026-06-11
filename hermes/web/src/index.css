@@ -59,12 +59,13 @@
   --midground: color-mix(in srgb, #ffe6cb 100%, transparent);
   --midground-base: #ffe6cb;
   --midground-alpha: 1;
-  --background: color-mix(in srgb, #041c1c 100%, transparent);
-  --background-base: #041c1c;
+  --background: color-mix(in srgb, #4a0e16 100%, transparent);
+  --background-base: #4a0e16;
   --background-alpha: 1;
 
-  /* Consumed by <Backdrop />; also theme-switchable. */
-  --warm-glow: rgba(255, 189, 56, 0.35);
+  /* Consumed by <Backdrop />; also theme-switchable. Kept in the maroon
+     family so the corner vignette reads as solid dark maroon, not amber. */
+  --warm-glow: rgba(150, 36, 52, 0.28);
   --noise-opacity-mul: 1;
 
   /* Typography tokens — rewritten by ThemeProvider. Defaults match the
@@ -227,14 +228,7 @@ code { font-size: 0.875rem; }
     2px 2px;
 }
 
-/* When a theme provides `assets.bg`, the backdrop's <div> renders it as
-   a CSS background; the default filler <img> is hidden to prevent
-   double-compositing. Unset → initial → empty, so the :not() selector
-   matches and the default image stays visible. */
-:root:not([style*="--theme-asset-bg:"]) .theme-default-filler {
-  display: block;
-}
-:root[style*="--theme-asset-bg:"] .theme-default-filler {
-  display: none;
-}
+/* The backdrop is a flat solid fill (see components/Backdrop.tsx) — no
+   filler image or asset-bg layer — so there are no `.theme-default-filler`
+   rules here anymore. */
 

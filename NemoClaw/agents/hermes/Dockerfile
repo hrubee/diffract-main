@@ -22,6 +22,15 @@ RUN set -eu; \
     test -x /usr/local/bin/hermes; \
     /usr/local/bin/hermes --version
 
+# OpenShell >= 0.0.57 isolates each workload in its own network namespace whose
+# only egress is the L7 proxy (the enforced no-bypass model). The supervisor
+# builds that netns + nftables/iptables rules inside the sandbox; without these
+# tools netns creation fails ("proxy mode requires isolation"). The base image
+# ships iproute2 but not nftables/iptables. (Re-added for the 0.0.57 cutover;
+# an earlier revert wrongly blamed these for a 0.0.39 recreate failure that was
+# actually a host UFW block of the internal gateway gRPC.)
+RUN apt-get update && apt-get install -y --no-install-recommends iproute2 iptables nftables && rm -rf /var/lib/apt/lists/*
+
 # Harden: remove unnecessary build tools and network probes
 RUN (apt-get remove --purge -y gcc gcc-12 g++ g++-12 cpp cpp-12 make \
         netcat-openbsd netcat-traditional ncat 2>/dev/null || true) \

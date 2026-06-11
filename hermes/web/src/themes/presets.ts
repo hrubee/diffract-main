@@ -40,13 +40,13 @@ const DEFAULT_LAYOUT: ThemeLayout = {
 
 export const defaultTheme: DashboardTheme = {
   name: "default",
-  label: "Diffract Teal",
-  description: "Classic dark teal — the canonical Diffract look",
+  label: "Diffract Maroon",
+  description: "Solid dark maroon — the canonical Diffract look",
   palette: {
-    background: { hex: "#041c1c", alpha: 1 },
+    background: { hex: "#4a0e16", alpha: 1 },
     midground: { hex: "#ffe6cb", alpha: 1 },
     foreground: { hex: "#ffffff", alpha: 0 },
-    warmGlow: "rgba(255, 189, 56, 0.35)",
+    warmGlow: "rgba(150, 36, 52, 0.28)",
     noiseOpacity: 1,
   },
   typography: DEFAULT_TYPOGRAPHY,
@@ -190,8 +190,8 @@ export const roseTheme: DashboardTheme = {
  */
 export const defaultLargeTheme: DashboardTheme = {
   name: "default-large",
-  label: "Diffract Teal (Large)",
-  description: "Diffract Teal with bigger fonts and roomier spacing",
+  label: "Diffract Maroon (Large)",
+  description: "Diffract Maroon with bigger fonts and roomier spacing",
   palette: defaultTheme.palette,
   typography: {
     ...DEFAULT_TYPOGRAPHY,

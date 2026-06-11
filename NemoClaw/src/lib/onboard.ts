@@ -5276,6 +5276,20 @@ async function createSandbox(
     createArgs.push("--provider", hermesToolGateway.getHermesToolGatewayProviderName(sandboxName));
   }
 
+  // Diffract universal-tool infra: attach extra tool providers (e.g. `ghl`) at
+  // sandbox CREATE so the long-running agent daemon receives their credential
+  // placeholders. On OpenShell >= 0.0.57 credential injection happens at workload
+  // start, so a provider attached *after* create reaches only new exec sessions,
+  // not the chat daemon — it must be attached here for the agent to use the tool
+  // in chat. Comma-separated provider names via NEMOCLAW_SANDBOX_EXTRA_PROVIDERS.
+  const diffractExtraProviders = String(process.env.NEMOCLAW_SANDBOX_EXTRA_PROVIDERS || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  for (const p of diffractExtraProviders) {
+    createArgs.push("--provider", p);
+  }
+
   console.log(`  Creating sandbox '${sandboxName}' (this takes a few minutes on first run)...`);
   const messagingChannelConfig = readMessagingChannelConfigFromEnv();
   // Build allowed sender IDs map from env vars set during the messaging prompt.

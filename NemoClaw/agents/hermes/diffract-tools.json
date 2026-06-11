@@ -7,7 +7,7 @@
       "repo": "https://github.com/hrubee/GHL-CLI.git",
       "ref": "main",
       "kind": "node",
-      "patch": "sed -i 's/axios.create({/axios.create({ adapter: \"fetch\",/' src/client.ts",
+      "patch": "sed -i 's/axios.create({/axios.create({ adapter: \"fetch\",/' src/client.ts && sed -i 's/params\\.q = opts\\.query/params.query = opts.query/' src/commands/*.ts",
       "build": "npm ci --no-audit --no-fund && npm run build",
       "entry": "dist/index.js",
       "bin": "ghl",
@@ -25,13 +25,16 @@
       "skill": {
         "name": "ghl-crm",
         "title": "GoHighLevel CRM",
-        "summary": "List and manage GoHighLevel CRM data — contacts, opportunities, conversations, calendars, and invoices — via the pre-authenticated ghl CLI.",
-        "tags": ["CRM", "GoHighLevel", "Contacts", "Sales", "Invoices"],
+        "summary": "List, search, AND message GoHighLevel CRM data — contacts, opportunities, conversations, calendars, invoices — via the pre-authenticated ghl CLI. You CAN send and reply to messages (SMS, WhatsApp, email) on the user's behalf.",
+        "tags": ["CRM", "GoHighLevel", "Contacts", "Messaging", "WhatsApp", "SMS", "Sales"],
         "examples": [
-          "ghl contacts list",
+          "ghl contacts list -q \"<email-or-phone>\"   # search; returns the contact id",
           "ghl contacts get <contactId>",
+          "ghl conversations send --contact <contactId> --message \"<text>\" --type whatsapp",
+          "ghl conversations send --contact <contactId> --message \"<text>\" --type sms",
+          "ghl conversations reply <conversationId> --message \"<text>\" --type whatsapp",
+          "ghl conversations list   # then: ghl conversations messages <conversationId>",
           "ghl opportunities list",
-          "ghl conversations list",
           "ghl calendar events list"
         ]
       }
