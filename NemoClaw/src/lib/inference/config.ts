@@ -193,8 +193,23 @@ export function getSandboxInferenceConfig(
       primaryModelRef = `openai/${model}`;
       break;
     case "anthropic-prod":
+      // Anthropic via its OpenAI-compatible endpoint (registered as an
+      // "openai"-type OpenShell provider in onboard/providers.ts). Route
+      // through the managed inference path so the sandbox agent speaks
+      // openai-completions at https://inference.local/v1 — matching the
+      // provider. The native "anthropic-messages" path (below, used only for
+      // a user-supplied Anthropic Messages endpoint) sets base_url WITHOUT
+      // /v1 and a Messages-API format, which the agent's OpenAI requests can't
+      // use: OpenShell returns "no compatible inference route available" (400)
+      // and the missing /v1 also trips the egress policy (403).
+      providerKey = MANAGED_PROVIDER_ID;
+      primaryModelRef = `${MANAGED_PROVIDER_ID}/${model}`;
+      inferenceCompat = {
+        supportsStore: false,
+      };
+      break;
     case "compatible-anthropic-endpoint":
-      if (provider === "compatible-anthropic-endpoint" && inferenceApi === "openai-completions") {
+      if (inferenceApi === "openai-completions") {
         providerKey = MANAGED_PROVIDER_ID;
         primaryModelRef = `${MANAGED_PROVIDER_ID}/${model}`;
         inferenceCompat = {

@@ -19,7 +19,13 @@ const { compactText } = require("../core/url-utils");
 
 const BUILD_ENDPOINT_URL = "https://integrate.api.nvidia.com/v1";
 const OPENAI_ENDPOINT_URL = "https://api.openai.com/v1";
-const ANTHROPIC_ENDPOINT_URL = "https://api.anthropic.com";
+// Anthropic's OpenAI-compatible base URL (note the /v1). We route Anthropic
+// through OpenShell as a generic "openai" provider so the sandbox agent's
+// OpenAI chat/completions requests work without translation. The native
+// Messages-API endpoint (https://api.anthropic.com, type "anthropic") is
+// incompatible with the agent's OpenAI format and OpenShell returns
+// "no compatible inference route available" (HTTP 400).
+const ANTHROPIC_ENDPOINT_URL = "https://api.anthropic.com/v1";
 const GEMINI_ENDPOINT_URL = "https://generativelanguage.googleapis.com/v1beta/openai/";
 const HERMES_INFERENCE_ENDPOINT_URL = "https://inference-api.nousresearch.com/v1";
 
@@ -49,12 +55,16 @@ const REMOTE_PROVIDER_CONFIG = {
   anthropic: {
     label: "Anthropic",
     providerName: "anthropic-prod",
-    providerType: "anthropic",
+    // OpenAI-compatible (type "openai" + /v1) so the agent's OpenAI
+    // chat/completions route through OpenShell to Anthropic without
+    // translation. See ANTHROPIC_ENDPOINT_URL note above.
+    providerType: "openai",
     credentialEnv: "ANTHROPIC_API_KEY",
     endpointUrl: ANTHROPIC_ENDPOINT_URL,
     helpUrl: "https://console.anthropic.com/settings/keys",
     modelMode: "curated",
     defaultModel: "claude-sonnet-4-6",
+    skipVerify: true,
   },
   anthropicCompatible: {
     label: "Other Anthropic-compatible endpoint",
