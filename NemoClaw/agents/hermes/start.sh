@@ -646,6 +646,28 @@ configure_agent_browser() {
   return 0
 }
 
+# Ensure the inference endpoint base URL always targets the OpenShell privacy
+# router's /v1 path. OpenShell's egress policy (and the router) only accept
+# https://inference.local/v1; a base URL of https://inference.local (no /v1) is
+# denied at the proxy with "403 connection not allowed by policy" and the agent
+# returns nothing. The baked config is correct, but switching the model in the
+# dashboard can rewrite the base URL without /v1 — this boot-time guard repairs
+# it so chat keeps working for every client. No-op when already correct or when
+# the config is locked read-only (shields up).
+normalize_inference_base_url() {
+  local config="${HERMES_DIR}/config.yaml"
+  [ -f "$config" ] && [ ! -L "$config" ] && [ -w "$config" ] || return 0
+  local before after
+  before="$(sha256sum "$config" 2>/dev/null)"
+  # Match base_url whose value is http(s)://inference.local with an optional
+  # trailing slash and optional surrounding quotes; force the /v1 suffix.
+  # Values already ending in /v1 (or any other path) are left untouched.
+  sed -i -E "s#^([[:space:]]*base_url:[[:space:]]*[\"']?)https?://inference\.local/?([\"']?[[:space:]]*)\$#\1https://inference.local/v1\2#g" "$config" 2>/dev/null || return 0
+  after="$(sha256sum "$config" 2>/dev/null)"
+  [ "$before" != "$after" ] && echo "[config] Normalized inference base_url -> https://inference.local/v1 (OpenShell policy requires the /v1 path)" >&2
+  return 0
+}
+
 # ── Main ─────────────────────────────────────────────────────────
 
 # Migrate legacy symlink layout before anything else reads .hermes
@@ -671,6 +693,7 @@ if [ "$(id -u)" -ne 0 ]; then
   refresh_hermes_provider_placeholders
   configure_messaging_channels
   configure_agent_browser   # HOME is already /sandbox in this posture
+  normalize_inference_base_url
 
   if [ ${#NEMOCLAW_CMD[@]} -gt 0 ]; then
     exec "${NEMOCLAW_CMD[@]}"
@@ -716,6 +739,7 @@ verify_config_integrity "${HERMES_DIR}" "${HERMES_HASH_FILE}"
 refresh_hermes_provider_placeholders
 configure_messaging_channels
 configure_agent_browser   # gateway is launched below with HOME=/sandbox
+normalize_inference_base_url
 
 if [ ${#NEMOCLAW_CMD[@]} -gt 0 ]; then
   exec "${STEP_DOWN_PREFIX_SANDBOX[@]}" "${NEMOCLAW_CMD[@]}"
