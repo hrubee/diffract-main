@@ -28,7 +28,12 @@ ARG HERMES_VERSION=v2026.4.23
 ARG HERMES_TARBALL_SHA256=1ee1be80a2112b7edc581770cee8858e725ba110cc423979cd7102492504bc6b
 # "pty" pulls ptyprocess, required by the dashboard's embedded TUI chat
 # (hermes_cli/pty_bridge.py); without it /chat returns "Chat unavailable".
-ARG HERMES_UV_EXTRAS="messaging web pty"
+# "mcp" pulls the `mcp` Python SDK (mcp==1.26.0), required to connect MCP servers
+# (HTTP/stdio). Without it `hermes mcp add/test` fail with "mcp.client.streamable_http
+# is not available" — no MCP transport works. This is the prerequisite for the
+# dashboard "Connect MCP" flow; the SDK must be baked in (the uv venv has no pip,
+# so it can't be added at runtime).
+ARG HERMES_UV_EXTRAS="messaging web pty mcp"
 ARG UV_VERSION=0.11.8
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
