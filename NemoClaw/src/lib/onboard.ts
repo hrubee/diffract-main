@@ -2281,7 +2281,7 @@ async function validateCustomAnthropicSelection(
 }
 
 const { promptCloudModel, promptRemoteModel, promptInputModel } = modelPrompts;
-const { validateAnthropicModel, validateOpenAiLikeModel } = providerModels;
+const { validateOpenAiLikeModel } = providerModels;
 const nousModels: typeof import("./inference/nous-models") = require("./inference/nous-models");
 
 // Build context helpers — delegated to src/lib/build-context.ts
@@ -6628,7 +6628,13 @@ async function setupNim(
             );
           }
           let modelValidator: ((candidate: string) => ModelValidationResult) | null = null;
-          if (selected.key === "openai" || selected.key === "gemini") {
+          if (
+            selected.key === "openai" ||
+            selected.key === "gemini" ||
+            selected.key === "anthropic"
+          ) {
+            // Anthropic uses its OpenAI-compatible endpoint (api.anthropic.com/v1),
+            // so the same OpenAI-like model probe applies as OpenAI/Gemini.
             const modelAuthMode = getProbeAuthMode(provider);
             modelValidator = (candidate) =>
               validateOpenAiLikeModel(
@@ -6637,13 +6643,6 @@ async function setupNim(
                 candidate,
                 getCredential(selectedCredentialEnv) || "",
                 ...(modelAuthMode ? [{ authMode: modelAuthMode }] : []),
-              );
-          } else if (selected.key === "anthropic") {
-            modelValidator = (candidate) =>
-              validateAnthropicModel(
-                endpointUrl || ANTHROPIC_ENDPOINT_URL,
-                candidate,
-                getCredential(selectedCredentialEnv) || "",
               );
           }
           while (true) {
@@ -6734,51 +6733,36 @@ async function setupNim(
               }
             } else {
               const retryMessage = "Please choose a provider/model again.";
-              if (selected.key === "anthropic") {
-                const validation = await validateAnthropicSelectionWithRetryMessage(
-                  remoteConfig.label,
-                  endpointUrl || ANTHROPIC_ENDPOINT_URL,
-                  model,
-                  selectedCredentialEnv,
-                  retryMessage,
-                  remoteConfig.helpUrl,
-                );
-                if (validation.ok) {
-                  preferredInferenceApi = validation.api;
-                  break;
-                }
-                if (
-                  validation.retry === "credential" ||
-                  validation.retry === "retry" ||
-                  validation.retry === "model"
-                ) {
-                  continue;
-                }
-              } else {
-                const validation = await validateOpenAiLikeSelection(
-                  remoteConfig.label,
-                  requireValue(endpointUrl, `Missing endpoint URL for ${remoteConfig.label}`),
-                  model,
-                  selectedCredentialEnv,
-                  retryMessage,
-                  remoteConfig.helpUrl,
-                  {
-                    requireResponsesToolCalling: shouldRequireResponsesToolCalling(provider),
-                    skipResponsesProbe: shouldSkipResponsesProbe(provider),
-                    authMode: getProbeAuthMode(provider),
-                  },
-                );
-                if (validation.ok) {
-                  preferredInferenceApi = validation.api;
-                  break;
-                }
-                if (
-                  validation.retry === "credential" ||
-                  validation.retry === "retry" ||
-                  validation.retry === "model"
-                ) {
-                  continue;
-                }
+              // Anthropic is registered as an OpenAI-compatible provider
+              // (api.anthropic.com/v1), so it validates via the OpenAI-like
+              // probe just like OpenAI / Gemini / NVIDIA — not the native
+              // Anthropic Messages probe (which 404s against the /v1 path).
+              const validation = await validateOpenAiLikeSelection(
+                remoteConfig.label,
+                requireValue(
+                  endpointUrl || remoteConfig.endpointUrl,
+                  `Missing endpoint URL for ${remoteConfig.label}`,
+                ),
+                model,
+                selectedCredentialEnv,
+                retryMessage,
+                remoteConfig.helpUrl,
+                {
+                  requireResponsesToolCalling: shouldRequireResponsesToolCalling(provider),
+                  skipResponsesProbe: shouldSkipResponsesProbe(provider),
+                  authMode: getProbeAuthMode(provider),
+                },
+              );
+              if (validation.ok) {
+                preferredInferenceApi = validation.api;
+                break;
+              }
+              if (
+                validation.retry === "credential" ||
+                validation.retry === "retry" ||
+                validation.retry === "model"
+              ) {
+                continue;
               }
               continue selectionLoop;
             }
