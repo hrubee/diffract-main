@@ -335,32 +335,54 @@ esac
 tmpdir="$(mktemp -d)"
 trap 'rm -rf "$tmpdir"' EXIT
 
+# Mirror-first: a re-hosted, checksum-verified copy of the OpenShell release on the
+# Diffract repo, so installs do NOT depend on upstream (NVIDIA) release availability.
+# Whatever is fetched is still SHA-256 verified below against the downloaded checksum
+# files, so the mirror is trusted no more than upstream. The mirror tag mirrors the
+# upstream tag with an `openshell-` prefix (openshell-v0.0.57). Set
+# OPENSHELL_MIRROR_BASE="" to skip the mirror and use NVIDIA directly.
+OPENSHELL_MIRROR_BASE="${OPENSHELL_MIRROR_BASE-https://github.com/riaan-attar/diffract-main/releases/download/openshell-${RELEASE_TAG}}"
+OPENSHELL_UPSTREAM_BASE="https://github.com/NVIDIA/OpenShell/releases/download/${RELEASE_TAG}"
+
 download_with_curl() {
-  local name
+  # $1 = release download base URL (default: upstream NVIDIA).
+  local base="${1:-$OPENSHELL_UPSTREAM_BASE}" name
   for name in "${ASSETS[@]}" "${CHECKSUM_FILES[@]}"; do
-    curl -fsSL "https://github.com/NVIDIA/OpenShell/releases/download/${RELEASE_TAG}/$name" \
-      -o "$tmpdir/$name"
+    curl -fsSL "${base}/$name" -o "$tmpdir/$name" || return 1
   done
 }
 
-if command -v gh >/dev/null 2>&1; then
-  gh_ok=1
-  for name in "${ASSETS[@]}" "${CHECKSUM_FILES[@]}"; do
-    if ! GH_PROMPT_DISABLED=1 GH_TOKEN="${GH_TOKEN:-${GITHUB_TOKEN:-}}" gh release download "$RELEASE_TAG" --repo NVIDIA/OpenShell \
-      --pattern "$name" --dir "$tmpdir" --clobber 2>/dev/null; then
-      gh_ok=0
-      break
-    fi
-  done
-  if [ "$gh_ok" = "1" ]; then
-    : # gh succeeded
+mirror_ok=0
+if [ -n "$OPENSHELL_MIRROR_BASE" ]; then
+  if download_with_curl "$OPENSHELL_MIRROR_BASE"; then
+    mirror_ok=1
+    info "Fetched OpenShell ${RELEASE_TAG} from the Diffract mirror"
   else
-    warn "gh CLI download failed (auth may not be configured) — falling back to curl"
-    rm -f "$tmpdir"/*
+    warn "Diffract mirror has no ${RELEASE_TAG} (or is unreachable) — falling back to upstream NVIDIA release"
+    rm -f "$tmpdir"/* 2>/dev/null || true
+  fi
+fi
+
+if [ "$mirror_ok" = "0" ]; then
+  if command -v gh >/dev/null 2>&1; then
+    gh_ok=1
+    for name in "${ASSETS[@]}" "${CHECKSUM_FILES[@]}"; do
+      if ! GH_PROMPT_DISABLED=1 GH_TOKEN="${GH_TOKEN:-${GITHUB_TOKEN:-}}" gh release download "$RELEASE_TAG" --repo NVIDIA/OpenShell \
+        --pattern "$name" --dir "$tmpdir" --clobber 2>/dev/null; then
+        gh_ok=0
+        break
+      fi
+    done
+    if [ "$gh_ok" = "1" ]; then
+      : # gh succeeded
+    else
+      warn "gh CLI download failed (auth may not be configured) — falling back to curl"
+      rm -f "$tmpdir"/*
+      download_with_curl
+    fi
+  else
     download_with_curl
   fi
-else
-  download_with_curl
 fi
 
 info "Verifying SHA-256 checksum..."

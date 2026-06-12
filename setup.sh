@@ -280,16 +280,25 @@ print_header "Installing OpenShell Runtime"
 if command -v openshell &> /dev/null; then
     print_success "OpenShell is already installed"
 else
-    # Pin the bootstrap install to the blueprint's max_openshell_version — the SAME
-    # single source of truth NemoClaw onboard enforces (nemoclaw-blueprint/blueprint.yaml)
-    # — instead of pulling upstream "latest". This stops a fresh VPS from landing on a
-    # newer, untested OpenShell that onboard would then have to reinstall, and is the one
-    # genuinely-unpinned spot in the deploy. Reads the pin (no second source of truth);
-    # falls back to upstream-latest only if the blueprint can't be read.
+    # Install OpenShell pinned to the blueprint's max_openshell_version — the single
+    # source of truth NemoClaw onboard also enforces (nemoclaw-blueprint/blueprint.yaml).
+    # Prefer the repo's mirror-first installer (re-hosted, checksum-verified OpenShell on
+    # the Diffract repo; NVIDIA upstream is its own automatic fallback) so a fresh VPS does
+    # not depend on upstream release availability. If the repo installer is missing or
+    # fails, fall back to the upstream installer (still pinned).
     _OS_BLUEPRINT="NemoClaw/nemoclaw-blueprint/blueprint.yaml"
     _OS_PIN="$(grep -oE 'max_openshell_version:[[:space:]]*"[0-9]+\.[0-9]+\.[0-9]+"' "$_OS_BLUEPRINT" 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
-    if [ -n "$_OS_PIN" ]; then
-        print_warning "Installing OpenShell v${_OS_PIN} (pinned to blueprint max_openshell_version)..."
+    _OS_INSTALLER="NemoClaw/scripts/install-openshell.sh"
+    if [ -n "$_OS_PIN" ] && [ -f "$_OS_INSTALLER" ]; then
+        # The repo installer needs `strings` (binutils) for its capability check.
+        command -v strings >/dev/null 2>&1 || apt-get install -y -qq binutils >/dev/null 2>&1 || true
+        print_warning "Installing OpenShell v${_OS_PIN} via the mirror-first installer (pinned to blueprint)..."
+        if ! NEMOCLAW_OPENSHELL_PIN_VERSION="$_OS_PIN" NEMOCLAW_OPENSHELL_MAX_VERSION="$_OS_PIN" bash "$_OS_INSTALLER"; then
+            print_warning "Mirror-first installer failed — falling back to the upstream OpenShell installer..."
+            curl -LsSf https://raw.githubusercontent.com/NVIDIA/OpenShell/main/install.sh | OPENSHELL_VERSION="v${_OS_PIN}" sh
+        fi
+    elif [ -n "$_OS_PIN" ]; then
+        print_warning "Installing OpenShell v${_OS_PIN} (pinned to blueprint; repo installer not found)..."
         curl -LsSf https://raw.githubusercontent.com/NVIDIA/OpenShell/main/install.sh | OPENSHELL_VERSION="v${_OS_PIN}" sh
     else
         print_warning "Installing OpenShell (latest — blueprint pin not found)..."
