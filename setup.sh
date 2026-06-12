@@ -547,11 +547,28 @@ ensure_9119_forward() {
 # gateway lives. (Same netns split as 9119, opposite direction: 9119's dashboard is
 # in the CONTAINER netns, 8642's gateway is in the WORKLOAD netns.)
 ensure_8642_forward() {
-    if ! ss -ltn 2>/dev/null | grep -q '127.0.0.1:8642'; then
-        openshell forward stop 8642 "$SANDBOX_NAME" >/dev/null 2>&1 || true
-        pkill -f -- '-L 127.0.0.1:8642:127.0.0.1:8642' 2>/dev/null || true
-        openshell forward start --background 8642 "$SANDBOX_NAME" >/dev/null 2>&1 || true
+    # FUNCTIONAL probe, not a port-bound check: a stale openshell ssh -L forward
+    # (left pointing at a destroyed/recreated sandbox-id) keeps :8642 BOUND while
+    # the gateway behind it is gone, so the old `ss | grep :8642` guard never
+    # rebuilt it and chat silently returned 000 until a manual service restart.
+    # Probe the gateway itself (cheap, static /v1/models — no inference); on
+    # failure tear down ANY :8642 tunnel and rebuild against the CURRENT default
+    # sandbox, re-read fresh (the sandbox-id changes on --recreate-sandbox). The
+    # -L substring is constant across sandbox-ids, so the pkill matches a stale
+    # tunnel regardless of which sandbox it points at.
+    if curl -sf --max-time 5 -o /dev/null http://127.0.0.1:8642/v1/models 2>/dev/null; then
+        return 0
     fi
+    local cur_sb
+    cur_sb="$(jq -r '.defaultSandbox' ~/.nemoclaw/sandboxes.json 2>/dev/null)"
+    if [ -z "$cur_sb" ] || [ "$cur_sb" = "null" ]; then
+        cur_sb="$SANDBOX_NAME"
+    fi
+    openshell forward stop 8642 "$cur_sb" >/dev/null 2>&1 || true
+    openshell forward stop 8642 "$SANDBOX_NAME" >/dev/null 2>&1 || true
+    pkill -f -- '-L 127.0.0.1:8642:127.0.0.1:8642' 2>/dev/null || true
+    openshell forward start --background 8642 "$cur_sb" >/dev/null 2>&1 || true
+    return 0
 }
 cleanup_fwd() {
     kill $KEEPALIVE_PID 2>/dev/null || true

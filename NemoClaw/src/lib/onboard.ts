@@ -6612,6 +6612,12 @@ async function setupNim(
               console.error(
                 `  ${selectedCredentialEnv} (or NEMOCLAW_PROVIDER_KEY) is required for ${remoteConfig.label} in non-interactive mode.`,
               );
+              console.error(
+                `  Note: a ${remoteConfig.label} provider already registered with the gateway is NOT sufficient — onboard re-validates the key from the environment before recreating the sandbox, because the sandbox's inference egress is bound to this credential at create time.`,
+              );
+              console.error(
+                `  Fix: export ${selectedCredentialEnv} in the environment that launches onboard (e.g. the deploy service's env file), then re-run. The running sandbox is left untouched on this error.`,
+              );
               process.exit(1);
             }
           } else {
