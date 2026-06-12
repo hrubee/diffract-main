@@ -35,6 +35,21 @@ const BLANK_FORM = {
   summary: "",
 };
 
+// "Connect an API" (REST/API-key) form — no git clone/build. The agent calls the
+// API with curl; the secret is held host-side and injected at egress.
+const BLANK_REST = {
+  name: "",
+  description: "",
+  baseUrl: "",
+  authHeader: "Authorization: Bearer",
+  authHeaderCustom: "",
+  secretEnv: "",
+  secretValue: "",
+  endpoints: "",
+};
+
+const AUTH_PRESETS = ["Authorization: Bearer", "Authorization: Token", "x-api-key:", "Custom…"];
+
 function Badge({ ok, label }: { ok: boolean; label: string }) {
   return (
     <span
@@ -92,11 +107,16 @@ export default function ToolsTab({ sandboxName }: { sandboxName: string }) {
 
   // Add-tool form + install job
   const [showAdd, setShowAdd] = useState(false);
+  const [addMode, setAddMode] = useState<"rest" | "cli">("rest");
   const [form, setForm] = useState({ ...BLANK_FORM });
+  const [restForm, setRestForm] = useState({ ...BLANK_REST });
   const [adding, setAdding] = useState(false);
   const [job, setJob] = useState<string | null>(null);
   const [jobStatus, setJobStatus] = useState<string>("");
   const [jobLog, setJobLog] = useState<string>("");
+  // Shown after a successful connect: tools bind to the CHAT agent only at
+  // sandbox create, so a redeploy is needed to use a just-connected tool in chat.
+  const [chatNote, setChatNote] = useState<string | null>(null);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -164,6 +184,7 @@ export default function ToolsTab({ sandboxName }: { sandboxName: string }) {
       const data = await r.json();
       if (!r.ok || !data.ok) throw new Error(data.error || "Connect failed");
       setResult({ tool: t.name, ok: true, msg: data.output || "Connected." });
+      setChatNote(t.name);
       setOpenTool(null);
       setCreds({});
       load();
@@ -213,14 +234,85 @@ export default function ToolsTab({ sandboxName }: { sandboxName: string }) {
     }
   }
 
+  // Connect an API/SaaS by key: register an install-less REST entry (advertised
+  // as a curl skill), then wire the credential host-side — in one step.
+  async function submitRest() {
+    setAdding(true);
+    setError("");
+    setJobLog("");
+    setJobStatus("");
+    setChatNote(null);
+    try {
+      const name = restForm.name.trim();
+      const secretEnv = restForm.secretEnv.trim();
+      const authHeader = (
+        restForm.authHeader === "Custom…" ? restForm.authHeaderCustom : restForm.authHeader
+      ).trim();
+      const baseUrl = restForm.baseUrl.trim();
+      // Derive the egress host:port from the base URL so they always match.
+      let apiHost = "";
+      try {
+        const u = new URL(baseUrl);
+        apiHost = u.port ? u.host : `${u.hostname}:443`;
+      } catch {
+        throw new Error("Base URL must be a full https URL, e.g. https://api.example.com/v1");
+      }
+      if (!secretEnv) throw new Error("Secret env var name is required (e.g. EXAMPLE_TOKEN)");
+      if (!restForm.secretValue.trim()) throw new Error("Paste the API token / key");
+
+      const tool = {
+        name,
+        description: restForm.description.trim(),
+        apiHosts: [apiHost],
+        secretEnv,
+        authHeader,
+        baseUrl,
+        endpoints: restForm.endpoints.split(",").map((s) => s.trim()).filter(Boolean),
+        skill: { summary: restForm.description.trim() },
+      };
+      // 1) Register the install-less REST entry + advertise it as a skill.
+      const r = await fetch("/api/tools/add", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sandbox: sandboxName, transport: "rest", tool }),
+      });
+      const data = await r.json();
+      if (!r.ok || !data.ok) throw new Error(data.error || "Register failed");
+
+      // 2) Connect the credential host-side (provider placeholder + egress).
+      const c = await fetch("/api/tools", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sandbox: sandboxName,
+          tool: name,
+          credentials: { [secretEnv]: restForm.secretValue },
+        }),
+      });
+      const cd = await c.json();
+      if (!c.ok || !cd.ok)
+        throw new Error(cd.error || "Connect failed — the tool was registered; use its Connect button to retry");
+
+      setShowAdd(false);
+      setRestForm({ ...BLANK_REST });
+      setJob(name); // poll the advertise job
+      setJobStatus("running");
+      setChatNote(name);
+    } catch (e) {
+      setError((e as Error).message || "Connect failed");
+    } finally {
+      setAdding(false);
+    }
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-nc-text text-sm font-semibold">Tools</h2>
           <p className="text-nc-text-muted text-xs">
-            CLIs the agent can use — baked into the sandbox, advertised as a skill, credentialed
-            host-side (the agent only ever sees a placeholder).
+            APIs and CLIs the agent can use — advertised as a skill, credentialed host-side (the
+            agent only ever sees a placeholder; the real key is injected at the network layer).
           </p>
         </div>
         <div className="flex gap-2">
@@ -229,7 +321,7 @@ export default function ToolsTab({ sandboxName }: { sandboxName: string }) {
             disabled={!running}
             className="rounded bg-nc-green/15 px-2 py-1 text-xs text-nc-green hover:bg-nc-green/25 disabled:opacity-40"
           >
-            {showAdd ? "Cancel" : "+ Add tool"}
+            {showAdd ? "Cancel" : "+ Connect tool"}
           </button>
           <button
             onClick={load}
@@ -251,40 +343,144 @@ export default function ToolsTab({ sandboxName }: { sandboxName: string }) {
         </div>
       )}
 
-      {/* Add-tool form */}
+      {/* Add / Connect panel */}
       {showAdd && (
         <div className="rounded border border-nc-border bg-nc-bg p-3 space-y-2">
-          <p className="text-nc-text-muted text-xs">
-            Registers the tool and installs it into the running sandbox now (git clone + build, ~a
-            minute). It also re-bakes on the next recreate. The build runs inside the sandbox.
-          </p>
-          <div className="grid grid-cols-2 gap-2">
-            <Field label="Name *" value={form.name} onChange={(v) => setForm({ ...form, name: v })} placeholder="gdrive" hint="lowercase, a-z0-9-" />
-            <Field label="Binary" value={form.bin} onChange={(v) => setForm({ ...form, bin: v })} placeholder="(defaults to name)" />
-            <Field label="Git repo *" value={form.repo} onChange={(v) => setForm({ ...form, repo: v })} placeholder="https://github.com/owner/cli.git" />
-            <Field label="Ref" value={form.ref} onChange={(v) => setForm({ ...form, ref: v })} placeholder="main" />
-            <Field label="Entry *" value={form.entry} onChange={(v) => setForm({ ...form, entry: v })} hint="path run by the bin, e.g. dist/index.js" />
-            <Field label="API host(s)" value={form.apiHosts} onChange={(v) => setForm({ ...form, apiHosts: v })} placeholder="api.example.com:443" hint="comma-separated host:port" />
-            <Field label="Secret env key" value={form.secretEnv} onChange={(v) => setForm({ ...form, secretEnv: v })} placeholder="EXAMPLE_TOKEN" hint="UPPER_SNAKE (the secret)" />
-            <Field label="Config env key(s)" value={form.configEnv} onChange={(v) => setForm({ ...form, configEnv: v })} placeholder="EXAMPLE_REGION" hint="comma-separated, non-secret" />
-          </div>
-          <Field label="Build command" value={form.build} onChange={(v) => setForm({ ...form, build: v })} hint="runs in the cloned tool dir, in the sandbox" />
-          <Field label="Description / skill summary" value={form.summary} onChange={(v) => setForm({ ...form, summary: v })} placeholder="What the agent uses this for" />
-          <div className="flex items-center gap-2 pt-1">
+          {/* Mode toggle */}
+          <div className="flex w-fit gap-0.5 rounded bg-nc-surface p-0.5 text-xs">
             <button
-              disabled={adding || !form.name || !form.repo || !form.entry}
-              onClick={submitAdd}
-              className="rounded bg-nc-green px-3 py-1.5 text-xs text-nc-bg font-medium hover:opacity-90 disabled:opacity-40"
+              onClick={() => setAddMode("rest")}
+              className={
+                "rounded px-2 py-1 " +
+                (addMode === "rest" ? "bg-nc-green/20 text-nc-green" : "text-nc-text-dim hover:text-nc-text")
+              }
             >
-              {adding ? "Starting…" : "Add & install"}
+              Connect an API
             </button>
             <button
-              onClick={() => setShowAdd(false)}
-              className="rounded border border-nc-border px-3 py-1.5 text-xs text-nc-text-dim hover:bg-nc-surface-hover"
+              onClick={() => setAddMode("cli")}
+              className={
+                "rounded px-2 py-1 " +
+                (addMode === "cli" ? "bg-nc-green/20 text-nc-green" : "text-nc-text-dim hover:text-nc-text")
+              }
             >
-              Cancel
+              Add a CLI (advanced)
             </button>
           </div>
+
+          {addMode === "rest" ? (
+            <>
+              <p className="text-nc-text-muted text-xs">
+                Connect any SaaS or internal REST API by key (CRM, etc.). No code to build — the
+                agent calls it with curl. Your key is stored host-side and injected at the network
+                layer; the agent only ever sees a placeholder.
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                <Field label="Name *" value={restForm.name} onChange={(v) => setRestForm({ ...restForm, name: v })} placeholder="pipedrive" hint="lowercase, a-z0-9-" />
+                <Field label="Base URL *" value={restForm.baseUrl} onChange={(v) => setRestForm({ ...restForm, baseUrl: v })} placeholder="https://api.pipedrive.com/v1" hint="full https URL — egress host is taken from this" />
+                <label className="block">
+                  <span className="text-nc-text-dim text-xs">Auth header</span>
+                  <select
+                    value={restForm.authHeader}
+                    onChange={(e) => setRestForm({ ...restForm, authHeader: e.target.value })}
+                    className="mt-0.5 w-full rounded border border-nc-border bg-nc-surface px-2 py-1 text-xs text-nc-text font-mono"
+                  >
+                    {AUTH_PRESETS.map((a) => (
+                      <option key={a} value={a}>{a}</option>
+                    ))}
+                  </select>
+                </label>
+                {restForm.authHeader === "Custom…" ? (
+                  <Field label="Custom header prefix" value={restForm.authHeaderCustom} onChange={(v) => setRestForm({ ...restForm, authHeaderCustom: v })} placeholder="X-Api-Key:" hint="header name + optional scheme" />
+                ) : (
+                  <div />
+                )}
+              </div>
+              <Field label="Secret env var *" value={restForm.secretEnv} onChange={(v) => setRestForm({ ...restForm, secretEnv: v })} placeholder="PIPEDRIVE_TOKEN" hint="UPPER_SNAKE — the name the key is referenced by" />
+              <label className="block">
+                <span className="text-nc-text-dim text-xs">API token / key *</span>
+                <input
+                  type="password"
+                  autoComplete="off"
+                  value={restForm.secretValue}
+                  onChange={(e) => setRestForm({ ...restForm, secretValue: e.target.value })}
+                  placeholder="paste the secret"
+                  className="mt-0.5 w-full rounded border border-nc-border bg-nc-surface px-2 py-1 text-xs text-nc-text font-mono"
+                />
+                <span className="text-nc-text-muted text-[10px]">
+                  Goes to the host-side provider only — never stored in the UI, the sandbox, or git.
+                </span>
+              </label>
+              <Field label="Example endpoints" value={restForm.endpoints} onChange={(v) => setRestForm({ ...restForm, endpoints: v })} placeholder="/deals, /persons" hint="comma-separated paths — helps the agent (optional)" />
+              <Field label="What it's for" value={restForm.description} onChange={(v) => setRestForm({ ...restForm, description: v })} placeholder="Pipedrive CRM — read/write deals and contacts" />
+              <div className="flex items-center gap-2 pt-1">
+                <button
+                  disabled={adding || !restForm.name || !restForm.baseUrl || !restForm.secretEnv || !restForm.secretValue}
+                  onClick={submitRest}
+                  className="rounded bg-nc-green px-3 py-1.5 text-xs text-nc-bg font-medium hover:opacity-90 disabled:opacity-40"
+                >
+                  {adding ? "Connecting…" : "Connect API"}
+                </button>
+                <button
+                  onClick={() => setShowAdd(false)}
+                  className="rounded border border-nc-border px-3 py-1.5 text-xs text-nc-text-dim hover:bg-nc-surface-hover"
+                >
+                  Cancel
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="text-nc-text-muted text-xs">
+                Registers a git-cloneable CLI and installs it into the running sandbox now (clone +
+                build, ~a minute). It also re-bakes on the next recreate. The build runs inside the
+                sandbox.
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                <Field label="Name *" value={form.name} onChange={(v) => setForm({ ...form, name: v })} placeholder="gdrive" hint="lowercase, a-z0-9-" />
+                <Field label="Binary" value={form.bin} onChange={(v) => setForm({ ...form, bin: v })} placeholder="(defaults to name)" />
+                <Field label="Git repo *" value={form.repo} onChange={(v) => setForm({ ...form, repo: v })} placeholder="https://github.com/owner/cli.git" />
+                <Field label="Ref" value={form.ref} onChange={(v) => setForm({ ...form, ref: v })} placeholder="main" />
+                <Field label="Entry *" value={form.entry} onChange={(v) => setForm({ ...form, entry: v })} hint="path run by the bin, e.g. dist/index.js" />
+                <Field label="API host(s)" value={form.apiHosts} onChange={(v) => setForm({ ...form, apiHosts: v })} placeholder="api.example.com:443" hint="comma-separated host:port" />
+                <Field label="Secret env key" value={form.secretEnv} onChange={(v) => setForm({ ...form, secretEnv: v })} placeholder="EXAMPLE_TOKEN" hint="UPPER_SNAKE (the secret)" />
+                <Field label="Config env key(s)" value={form.configEnv} onChange={(v) => setForm({ ...form, configEnv: v })} placeholder="EXAMPLE_REGION" hint="comma-separated, non-secret" />
+              </div>
+              <Field label="Build command" value={form.build} onChange={(v) => setForm({ ...form, build: v })} hint="runs in the cloned tool dir, in the sandbox" />
+              <Field label="Description / skill summary" value={form.summary} onChange={(v) => setForm({ ...form, summary: v })} placeholder="What the agent uses this for" />
+              <div className="flex items-center gap-2 pt-1">
+                <button
+                  disabled={adding || !form.name || !form.repo || !form.entry}
+                  onClick={submitAdd}
+                  className="rounded bg-nc-green px-3 py-1.5 text-xs text-nc-bg font-medium hover:opacity-90 disabled:opacity-40"
+                >
+                  {adding ? "Starting…" : "Add & install"}
+                </button>
+                <button
+                  onClick={() => setShowAdd(false)}
+                  className="rounded border border-nc-border px-3 py-1.5 text-xs text-nc-text-dim hover:bg-nc-surface-hover"
+                >
+                  Cancel
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Create-time binding note: tools reach the CHAT agent only at sandbox create. */}
+      {chatNote && (
+        <div className="rounded border border-nc-border bg-nc-surface px-3 py-2 text-xs text-nc-text-dim">
+          <span className="text-nc-text font-medium font-mono">{chatNote}</span> is connected and
+          usable in headless / exec sessions now. To use it in{" "}
+          <span className="text-nc-text">chat</span>, redeploy the sandbox from the Deploy tab — the
+          chat agent binds tools at sandbox create.
+          <button
+            onClick={() => setChatNote(null)}
+            className="ml-2 text-nc-text-muted underline hover:text-nc-text"
+          >
+            dismiss
+          </button>
         </div>
       )}
 

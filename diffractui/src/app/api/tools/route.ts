@@ -34,6 +34,7 @@ type RegistryTool = {
   name: string;
   description?: string;
   bin?: string;
+  transport?: string; // "rest" = install-less (agent calls the API via curl)
   secretEnv?: string;
   configEnv?: Record<string, string>;
   apiHosts?: string[];
@@ -168,7 +169,14 @@ export async function GET(req: Request): Promise<Response> {
       if (t.secretEnv) secretKeys.push(t.secretEnv);
       const configKeys = Object.keys(t.configEnv || {});
 
-      const installed = cid ? await dockerExecOk(cid, ["test", "-e", `/usr/local/bin/${bin}`]) : false;
+      // REST tools install nothing — the agent calls the API via an in-image
+      // binary (curl), so "installed" means that binary is on PATH, not that a
+      // symlink was baked under /usr/local/bin.
+      const installed = cid
+        ? t.transport === "rest"
+          ? await dockerExecOk(cid, ["sh", "-lc", `command -v ${bin} >/dev/null 2>&1`])
+          : await dockerExecOk(cid, ["test", "-e", `/usr/local/bin/${bin}`])
+        : false;
       const advertised = cid
         ? await dockerExecOk(cid, ["test", "-e", `/sandbox/.hermes/skills/diffract-tools/${skillName}/SKILL.md`])
         : false;

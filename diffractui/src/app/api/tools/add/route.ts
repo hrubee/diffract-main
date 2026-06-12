@@ -30,22 +30,31 @@ const HOST_RE = /^[a-z0-9.-]+:[0-9]{1,5}$/;
 const ENTRY_RE = /^[a-zA-Z0-9._/-]{1,120}$/;
 const REPO_RE = /^https:\/\/[a-zA-Z0-9._/-]+\.git$/;
 const REF_RE = /^[a-zA-Z0-9._/-]{1,80}$/;
+// REST tools: an auth-header prefix like "Authorization: Bearer" or "x-api-key:".
+const AUTH_HEADER_RE = /^[A-Za-z][A-Za-z0-9-]{0,40}:(?: [A-Za-z][A-Za-z0-9-]{0,30})?$/;
 
 type NewTool = {
   name: string;
   description?: string;
-  repo: string;
+  // INSTALL (CLI tools only): a git-cloneable, buildable CLI.
+  repo?: string;
   ref?: string;
   kind?: string;
   patch?: string;
   build?: string;
-  entry: string;
+  entry?: string;
   bin?: string;
+  // CONNECT (all tools): host-side credential placeholder + egress allowlist.
   secretEnv?: string;
   configEnv?: Record<string, string>;
   apiHosts?: string[];
   binaries?: string[];
   authHeader?: string;
+  // REST tools only: the API base URL + a few example endpoints used to compose
+  // the agent skill. `transport` marks an install-less REST entry.
+  transport?: string;
+  baseUrl?: string;
+  endpoints?: string[];
   skill?: { name?: string; title?: string; summary?: string; tags?: string[]; examples?: string[] };
 };
 
@@ -109,13 +118,14 @@ export async function POST(req: Request): Promise<Response> {
   const unauth = await requireSession();
   if (unauth) return unauth;
 
-  let body: { sandbox?: string; tool?: NewTool };
+  let body: { sandbox?: string; tool?: NewTool; transport?: string };
   try {
     body = await req.json();
   } catch {
     return Response.json({ error: "Invalid JSON body" }, { status: 400 });
   }
   const sandbox = body.sandbox || "";
+  const transport = body.transport === "rest" ? "rest" : "cli";
   const t = body.tool;
   if (!SANDBOX_NAME_RE.test(sandbox)) {
     return Response.json({ error: "Invalid sandbox name" }, { status: 400 });
@@ -127,17 +137,44 @@ export async function POST(req: Request): Promise<Response> {
   // ── Validate every field that becomes a command, path, or identifier ──
   const errs: string[] = [];
   if (!TOOL_NAME_RE.test(t.name || "")) errs.push("name (lowercase, a-z0-9-)");
-  if (!REPO_RE.test(t.repo || "")) errs.push("repo (https://….git)");
-  if (t.ref && !REF_RE.test(t.ref)) errs.push("ref");
-  if (!ENTRY_RE.test(t.entry || "")) errs.push("entry (e.g. dist/index.js)");
   if (t.bin && !BIN_RE.test(t.bin)) errs.push("bin");
-  const noCtrl = (s?: string) => !s || !/[\t\n\r]/.test(s); // build/patch are 1-line
-  if (!noCtrl(t.build)) errs.push("build (no tabs/newlines)");
-  if (!noCtrl(t.patch)) errs.push("patch (no tabs/newlines)");
   for (const h of t.apiHosts || []) if (!HOST_RE.test(h)) errs.push(`apiHost '${h}' (host:port)`);
   for (const b of t.binaries || []) if (!/^\/[a-zA-Z0-9._/-]+$/.test(b)) errs.push(`binary '${b}'`);
-  if (t.secretEnv && !KEY_RE.test(t.secretEnv)) errs.push("secretEnv key (UPPER_SNAKE)");
   for (const k of Object.keys(t.configEnv || {})) if (!KEY_RE.test(k)) errs.push(`config key '${k}'`);
+
+  if (transport === "rest") {
+    // REST / API-key tool: NO git clone or build. The agent calls the API via
+    // curl; the secret is held host-side and injected at egress (the sandbox
+    // only sees a placeholder), so this never bakes a binary.
+    if (!(t.apiHosts && t.apiHosts.length)) errs.push("apiHosts (at least one host:port)");
+    if (!t.secretEnv || !KEY_RE.test(t.secretEnv)) errs.push("secretEnv key (UPPER_SNAKE)");
+    if (!t.authHeader || !AUTH_HEADER_RE.test(t.authHeader.trim()))
+      errs.push("authHeader (e.g. 'Authorization: Bearer' or 'x-api-key:')");
+    let baseHost = "";
+    try {
+      const u = new URL((t.baseUrl || "").trim());
+      if (u.protocol !== "https:") errs.push("baseUrl (must be https://)");
+      baseHost = u.host.split(":")[0];
+    } catch {
+      errs.push("baseUrl (valid https URL)");
+    }
+    if (baseHost && !(t.apiHosts || []).some((h) => h.split(":")[0] === baseHost))
+      errs.push(`baseUrl host '${baseHost}' must be one of the API host(s)`);
+    // Endpoints are illustrative paths embedded in the skill's curl examples; a
+    // leading slash is added at compose time, so only forbid characters that
+    // would break the example string (whitespace, quotes, backtick, redirects).
+    const badEndpoint = (p: string) => p.length > 300 || /[\s"`\\<>]/.test(p);
+    for (const p of t.endpoints || []) if (badEndpoint(p)) errs.push(`endpoint '${p}' (no spaces or quotes)`);
+  } else {
+    // CLI tool: git clone + build inside the sandbox.
+    if (!REPO_RE.test(t.repo || "")) errs.push("repo (https://….git)");
+    if (t.ref && !REF_RE.test(t.ref)) errs.push("ref");
+    if (!ENTRY_RE.test(t.entry || "")) errs.push("entry (e.g. dist/index.js)");
+    const noCtrl = (s?: string) => !s || !/[\t\n\r]/.test(s); // build/patch are 1-line
+    if (!noCtrl(t.build)) errs.push("build (no tabs/newlines)");
+    if (!noCtrl(t.patch)) errs.push("patch (no tabs/newlines)");
+    if (t.secretEnv && !KEY_RE.test(t.secretEnv)) errs.push("secretEnv key (UPPER_SNAKE)");
+  }
   if (errs.length) {
     return Response.json({ error: "Invalid: " + errs.join(", ") }, { status: 400 });
   }
@@ -159,29 +196,68 @@ export async function POST(req: Request): Promise<Response> {
     return Response.json({ error: `Tool '${t.name}' already exists` }, { status: 409 });
   }
 
-  const entry: NewTool = {
-    name: t.name,
-    description: t.description || "",
-    repo: t.repo,
-    ref: t.ref || "main",
-    kind: t.kind || "node",
-    ...(t.patch ? { patch: t.patch } : {}),
-    build: t.build || "npm ci --no-audit --no-fund && npm run build",
-    entry: t.entry,
-    bin: t.bin || t.name,
-    ...(t.secretEnv ? { secretEnv: t.secretEnv } : {}),
-    configEnv: t.configEnv || {},
-    apiHosts: t.apiHosts || [],
-    binaries: t.binaries && t.binaries.length ? t.binaries : ["/usr/local/bin/node"],
-    ...(t.authHeader ? { authHeader: t.authHeader } : {}),
-    skill: {
-      name: t.skill?.name || `${t.name}-tool`,
-      title: t.skill?.title || t.description || t.name,
-      summary: t.skill?.summary || t.description || `${t.name} CLI`,
-      tags: t.skill?.tags || [],
-      examples: t.skill?.examples && t.skill.examples.length ? t.skill.examples : [`${t.bin || t.name} --help`],
-    },
-  };
+  let entry: NewTool;
+  if (transport === "rest") {
+    // Compose a curl-based skill so the agent knows the base URL, which env var
+    // holds the (placeholder) token, and how to pass it. `bin: "curl"` makes the
+    // advertise layer emit a SKILL.md; egress is attributed to /usr/bin/curl so
+    // the agent must call the API with curl (its native httpx tool egresses as a
+    // different binary and would be denied).
+    const secret = t.secretEnv as string;
+    const authHeader = (t.authHeader as string).trim();
+    const headerName = authHeader.split(":")[0];
+    const baseUrl = (t.baseUrl || "").trim().replace(/\/+$/, "");
+    const paths = t.endpoints && t.endpoints.length ? t.endpoints : ["/"];
+    const examples = paths.map(
+      (p) => `curl -sS -H "${authHeader} $${secret}" ${baseUrl}${p.startsWith("/") ? p : "/" + p}`,
+    );
+    const summary =
+      (t.description?.trim() || `${t.name} REST API`) +
+      ` — call it with curl at ${baseUrl}. The token is in $${secret} (a placeholder` +
+      ` injected at egress; never print it); send it via the ${headerName} header.`;
+    entry = {
+      name: t.name,
+      description: t.description || "",
+      transport: "rest",
+      bin: "curl",
+      secretEnv: secret,
+      configEnv: t.configEnv || {},
+      apiHosts: t.apiHosts || [],
+      binaries: t.binaries && t.binaries.length ? t.binaries : ["/usr/bin/curl"],
+      authHeader,
+      skill: {
+        name: t.skill?.name || `${t.name}-tool`,
+        title: t.skill?.title || t.description || t.name,
+        summary: t.skill?.summary || summary,
+        tags: t.skill?.tags && t.skill.tags.length ? t.skill.tags : ["rest", "api"],
+        examples,
+      },
+    };
+  } else {
+    entry = {
+      name: t.name,
+      description: t.description || "",
+      repo: t.repo,
+      ref: t.ref || "main",
+      kind: t.kind || "node",
+      ...(t.patch ? { patch: t.patch } : {}),
+      build: t.build || "npm ci --no-audit --no-fund && npm run build",
+      entry: t.entry,
+      bin: t.bin || t.name,
+      ...(t.secretEnv ? { secretEnv: t.secretEnv } : {}),
+      configEnv: t.configEnv || {},
+      apiHosts: t.apiHosts || [],
+      binaries: t.binaries && t.binaries.length ? t.binaries : ["/usr/local/bin/node"],
+      ...(t.authHeader ? { authHeader: t.authHeader } : {}),
+      skill: {
+        name: t.skill?.name || `${t.name}-tool`,
+        title: t.skill?.title || t.description || t.name,
+        summary: t.skill?.summary || t.description || `${t.name} CLI`,
+        tags: t.skill?.tags || [],
+        examples: t.skill?.examples && t.skill.examples.length ? t.skill.examples : [`${t.bin || t.name} --help`],
+      },
+    };
+  }
   reg.tools.push(entry);
 
   // Atomic-ish write (tmp + rename).
