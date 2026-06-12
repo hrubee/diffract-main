@@ -104,13 +104,24 @@ export async function GET(request: Request) {
   // not chat. The list is computed from the registry (diffract-tool-sync.sh) —
   // adding a tool needs no code here. Egress for each is applied after onboard.
   try {
-    const connected = execSync("/usr/local/bin/diffract-tool-sync.sh providers", {
+    const toolProviders = execSync("/usr/local/bin/diffract-tool-sync.sh providers", {
       encoding: "utf8",
       timeout: 15000,
     }).trim();
-    if (connected) env.NEMOCLAW_SANDBOX_EXTRA_PROVIDERS = connected;
+    // MCP servers also attach their token provider at create (diffract-mcp-sync.sh).
+    let mcpProviders = "";
+    try {
+      mcpProviders = execSync("/usr/local/bin/diffract-mcp-sync.sh providers", {
+        encoding: "utf8",
+        timeout: 15000,
+      }).trim();
+    } catch {
+      /* mcp sync helper missing — no MCP servers to attach */
+    }
+    const allProviders = [toolProviders, mcpProviders].filter(Boolean).join(",");
+    if (allProviders) env.NEMOCLAW_SANDBOX_EXTRA_PROVIDERS = allProviders;
   } catch {
-    // sync helper missing or gateway not yet up — deploy proceeds; tools can be
+    // sync helper missing or gateway not yet up — deploy proceeds; tools/MCP can be
     // wired on a later recreate once connected.
   }
 
@@ -230,6 +241,45 @@ export async function GET(request: Request) {
             send(
               "log",
               `WARN: could not run tool egress (${e.message}); connected tools may be unreachable in chat until the next recreate.`,
+            );
+            resolve();
+          });
+        });
+
+        // Apply every connected MCP server (egress + agent config + gateway
+        // reload) to the fresh sandbox, mirroring the tool egress above. The MCP
+        // provider is attached at create (NEMOCLAW_SANDBOX_EXTRA_PROVIDERS), so the
+        // daemon already holds the token placeholder; this wires the mcp_servers
+        // config so the chat agent can use the server's tools. Record-driven —
+        // covers any MCP server connected from the dashboard.
+        await new Promise<void>((resolve) => {
+          if (!SANDBOX_NAME_RE.test(sName)) return resolve();
+          const mc = execFile(
+            "/usr/local/bin/diffract-mcp-sync.sh",
+            ["apply", sName],
+            { timeout: 120000 },
+          );
+          mc.stdout?.on("data", (d: Buffer) => {
+            for (const line of d.toString().split("\n").filter(Boolean)) send("log", line);
+          });
+          mc.stderr?.on("data", (d: Buffer) => {
+            for (const line of d.toString().split("\n").filter(Boolean)) send("log", `WARN: ${line}`);
+          });
+          mc.on("close", (mcCode) => {
+            if (mcCode === 0) {
+              send("log", "MCP servers applied for all connected servers.");
+            } else {
+              send(
+                "log",
+                `WARN: MCP apply exited ${mcCode} — connected MCP servers may be unavailable in chat until the next recreate.`,
+              );
+            }
+            resolve();
+          });
+          mc.on("error", (e) => {
+            send(
+              "log",
+              `WARN: could not run MCP apply (${e.message}); MCP servers may be unavailable in chat until the next recreate.`,
             );
             resolve();
           });

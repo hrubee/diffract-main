@@ -50,6 +50,10 @@ const BLANK_REST = {
 
 const AUTH_PRESETS = ["Authorization: Bearer", "Authorization: Token", "x-api-key:", "Custom…"];
 
+// "Connect MCP" form — connect an MCP server (Zapier, Notion, …). Paste the
+// server URL; any embedded token is extracted and held host-side automatically.
+const BLANK_MCP = { name: "", url: "" };
+
 function Badge({ ok, label }: { ok: boolean; label: string }) {
   return (
     <span
@@ -107,9 +111,10 @@ export default function ToolsTab({ sandboxName }: { sandboxName: string }) {
 
   // Add-tool form + install job
   const [showAdd, setShowAdd] = useState(false);
-  const [addMode, setAddMode] = useState<"rest" | "cli">("rest");
+  const [addMode, setAddMode] = useState<"rest" | "mcp" | "cli">("rest");
   const [form, setForm] = useState({ ...BLANK_FORM });
   const [restForm, setRestForm] = useState({ ...BLANK_REST });
+  const [mcpForm, setMcpForm] = useState({ ...BLANK_MCP });
   const [adding, setAdding] = useState(false);
   const [job, setJob] = useState<string | null>(null);
   const [jobStatus, setJobStatus] = useState<string>("");
@@ -305,14 +310,44 @@ export default function ToolsTab({ sandboxName }: { sandboxName: string }) {
     }
   }
 
+  // Connect an MCP server: paste the server URL; the backend extracts any embedded
+  // token, holds it host-side, and stores a placeholder-URL in the agent config.
+  async function submitMcp() {
+    setAdding(true);
+    setError("");
+    setChatNote(null);
+    try {
+      const name = mcpForm.name.trim();
+      const url = mcpForm.url.trim();
+      if (!name) throw new Error("Name is required (lowercase, a-z0-9-)");
+      if (!/^https:\/\//.test(url)) throw new Error("Paste the MCP server URL (https://…)");
+      const r = await fetch("/api/mcp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sandbox: sandboxName, name, url }),
+      });
+      const data = await r.json();
+      if (!r.ok || !data.ok) throw new Error(data.error || "Connect failed");
+      setShowAdd(false);
+      setMcpForm({ ...BLANK_MCP });
+      setResult({ tool: name, ok: true, msg: data.output || "Connected." });
+      setChatNote(name);
+      load();
+    } catch (e) {
+      setError((e as Error).message || "Connect failed");
+    } finally {
+      setAdding(false);
+    }
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-nc-text text-sm font-semibold">Tools</h2>
           <p className="text-nc-text-muted text-xs">
-            APIs and CLIs the agent can use — advertised as a skill, credentialed host-side (the
-            agent only ever sees a placeholder; the real key is injected at the network layer).
+            APIs, MCP servers, and CLIs the agent can use — credentialed host-side (the agent only
+            ever sees a placeholder; the real key is injected at the network layer).
           </p>
         </div>
         <div className="flex gap-2">
@@ -356,6 +391,15 @@ export default function ToolsTab({ sandboxName }: { sandboxName: string }) {
               }
             >
               Connect an API
+            </button>
+            <button
+              onClick={() => setAddMode("mcp")}
+              className={
+                "rounded px-2 py-1 " +
+                (addMode === "mcp" ? "bg-nc-green/20 text-nc-green" : "text-nc-text-dim hover:text-nc-text")
+              }
+            >
+              Connect MCP
             </button>
             <button
               onClick={() => setAddMode("cli")}
@@ -420,6 +464,31 @@ export default function ToolsTab({ sandboxName }: { sandboxName: string }) {
                   className="rounded bg-nc-green px-3 py-1.5 text-xs text-nc-bg font-medium hover:opacity-90 disabled:opacity-40"
                 >
                   {adding ? "Connecting…" : "Connect API"}
+                </button>
+                <button
+                  onClick={() => setShowAdd(false)}
+                  className="rounded border border-nc-border px-3 py-1.5 text-xs text-nc-text-dim hover:bg-nc-surface-hover"
+                >
+                  Cancel
+                </button>
+              </div>
+            </>
+          ) : addMode === "mcp" ? (
+            <>
+              <p className="text-nc-text-muted text-xs">
+                Connect an MCP server (Zapier, Notion, …). Paste the server URL — any token embedded
+                in it is extracted and held host-side automatically; the agent only ever sees a
+                placeholder. The server&apos;s tools then become available to the agent.
+              </p>
+              <Field label="Name *" value={mcpForm.name} onChange={(v) => setMcpForm({ ...mcpForm, name: v })} placeholder="zapier" hint="lowercase, a-z0-9-" />
+              <Field label="MCP server URL *" value={mcpForm.url} onChange={(v) => setMcpForm({ ...mcpForm, url: v })} placeholder="https://mcp.zapier.com/api/v1/connect?token=…" hint="https URL (with its token); the token is secured host-side" />
+              <div className="flex items-center gap-2 pt-1">
+                <button
+                  disabled={adding || !mcpForm.name || !mcpForm.url}
+                  onClick={submitMcp}
+                  className="rounded bg-nc-green px-3 py-1.5 text-xs text-nc-bg font-medium hover:opacity-90 disabled:opacity-40"
+                >
+                  {adding ? "Connecting…" : "Connect MCP"}
                 </button>
                 <button
                   onClick={() => setShowAdd(false)}

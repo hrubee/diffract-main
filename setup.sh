@@ -470,6 +470,18 @@ EOF
         install -m 0755 "$PROJECT_ROOT/scripts/diffract-tool-sync.sh" /usr/local/bin/diffract-tool-sync.sh \
             && print_success "  installed diffract-tool-sync.sh"
     fi
+    # MCP connectors: diffract-mcp-connect.sh wires one MCP server (token held
+    # host-side as an OpenShell provider placeholder); diffract-mcp-sync.sh
+    # re-applies connected MCP servers (provider attach + egress + config) at each
+    # deploy so the chat agent can use them. Mirrors the tool connect/sync pair.
+    if [ -f "$PROJECT_ROOT/scripts/diffract-mcp-connect.sh" ]; then
+        install -m 0755 "$PROJECT_ROOT/scripts/diffract-mcp-connect.sh" /usr/local/bin/diffract-mcp-connect.sh \
+            && print_success "  installed diffract-mcp-connect.sh"
+    fi
+    if [ -f "$PROJECT_ROOT/scripts/diffract-mcp-sync.sh" ]; then
+        install -m 0755 "$PROJECT_ROOT/scripts/diffract-mcp-sync.sh" /usr/local/bin/diffract-mcp-sync.sh \
+            && print_success "  installed diffract-mcp-sync.sh"
+    fi
     # Install the gateway watchdog — keeps the agent chat backend (8642) alive by
     # health-checking it and recovering a crashed gateway / dead forward. Runs as
     # its own systemd service (defined below) so every deployment is self-healing.
