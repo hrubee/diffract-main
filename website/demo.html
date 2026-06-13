@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>See Diffract in action — AI agents that get work done, safely</title>
+<meta name="description" content="A plain-English look at Diffract: autonomous AI agents that do real work across your tools while your data stays yours, you stay in control, and every action is on the record. Book a 30-minute demo." />
+<meta property="og:title" content="See Diffract in action" />
+<meta property="og:description" content="AI agents that do the work — without the risk. Your data stays yours. You stay in control. Everything is on the record." />
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;500;600;700;800&family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400;1,500&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --blast-steel: #1A1C1E;
+    --forged-iron: #2C2F33;
+    --brushed-titanium: #4A4E54;
+    --cold-tungsten: #6B7077;
+    --matte-alloy: #9AA0A8;
+    --satin-frost: #D4D8DC;
+    --vault-amber: #C8850A;
+    --status-gold: #EBA020;
+    --bg-void: #0B0C0E;
+    --status-green: #6FCF97;
+    --ease-power: cubic-bezier(.2,.8,.3,1);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: 'Inter', sans-serif;
+    background: var(--bg-void);
+    color: var(--satin-frost);
+    line-height: 1.7;
+    font-weight: 300;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+    cursor: none;
+  }
+
+  /* CURSOR */
+  .cursor { position: fixed; width: 8px; height: 8px; background: var(--vault-amber); border-radius: 50%; pointer-events: none; z-index: 9999; mix-blend-mode: screen; box-shadow: 0 0 20px var(--vault-amber); transform: translate(-50%,-50%); }
+  .cursor-ring { position: fixed; width: 40px; height: 40px; border: 1px solid rgba(200,133,10,0.5); border-radius: 50%; pointer-events: none; z-index: 9998; transition: transform .25s var(--ease-power), width .3s, height .3s; transform: translate(-50%,-50%); }
+
+  /* ATMOSPHERE */
+  .glow { position: fixed; inset: 0; z-index: 0; pointer-events: none; background: radial-gradient(ellipse 70% 50% at 50% -5%, rgba(200,133,10,0.12), transparent 60%); }
+  .noise { position: fixed; inset: 0; pointer-events: none; opacity: .04; z-index: 1; background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); }
+  main, header, footer { position: relative; z-index: 2; }
+
+  /* HEADER */
+  header { position: fixed; top: 0; left: 0; right: 0; z-index: 100; padding: 20px 0; background: rgba(14,15,17,.65); backdrop-filter: blur(20px) saturate(140%); border-bottom: 1px solid rgba(74,78,84,.3); }
+  .nav { max-width: 1200px; margin: 0 auto; padding: 0 40px; display: flex; align-items: center; justify-content: space-between; }
+  .logo { font-family: 'Cormorant Garamond', serif; font-size: 26px; font-weight: 500; letter-spacing: .32em; color: var(--satin-frost); text-decoration: none; display: flex; align-items: center; gap: 12px; }
+  .logo-mark { width: 20px; height: 20px; position: relative; transform-style: preserve-3d; animation: spin3d 8s linear infinite; }
+  .logo-mark::before, .logo-mark::after { content: ""; position: absolute; inset: 0; border: 1px solid var(--vault-amber); transform: rotate(45deg); box-shadow: 0 0 15px rgba(200,133,10,.6); }
+  .logo-mark::after { background: var(--vault-amber); inset: 6px; }
+  @keyframes spin3d { 0% { transform: rotateY(0deg); } 100% { transform: rotateY(360deg); } }
+  .nav-links { display: flex; gap: 36px; align-items: center; }
+  .nav-links a { color: var(--matte-alloy); text-decoration: none; font-size: 11px; font-weight: 500; letter-spacing: .2em; text-transform: uppercase; transition: color .3s; }
+  .nav-links a:hover { color: var(--vault-amber); }
+
+  .btn { display: inline-flex; align-items: center; gap: 10px; padding: 15px 30px; font-size: 11px; font-weight: 600; letter-spacing: .2em; text-transform: uppercase; text-decoration: none; border: 1px solid var(--vault-amber); color: var(--vault-amber); background: transparent; cursor: none; transition: all .3s var(--ease-power); position: relative; overflow: hidden; }
+  .btn::before { content: ""; position: absolute; top: 0; left: -100%; width: 100%; height: 100%; background: var(--vault-amber); transition: left .4s var(--ease-power); z-index: -1; }
+  .btn:hover::before { left: 0; }
+  .btn:hover { color: var(--blast-steel); }
+  .btn-primary { background: var(--vault-amber); color: var(--blast-steel); box-shadow: 0 8px 30px rgba(200,133,10,.3); }
+  .btn-primary::before { background: var(--status-gold); }
+  .btn-primary:hover { color: var(--blast-steel); box-shadow: 0 12px 40px rgba(235,160,32,.5); transform: translateY(-2px); }
+  .btn-ghost { border-color: var(--brushed-titanium); color: var(--satin-frost); }
+  .btn-ghost::before { background: var(--satin-frost); }
+
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 0 40px; }
+  .eyebrow { font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: .32em; text-transform: uppercase; color: var(--vault-amber); margin-bottom: 22px; display: inline-flex; align-items: center; gap: 12px; }
+  .eyebrow::before { content: ""; width: 28px; height: 1px; background: var(--vault-amber); }
+
+  h1 { font-family: 'Cormorant Garamond', serif; font-size: clamp(46px, 6.4vw, 92px); font-weight: 400; line-height: .98; letter-spacing: -0.02em; color: var(--satin-frost); }
+  h1 .accent { font-style: italic; font-weight: 300; background: linear-gradient(135deg, var(--vault-amber), var(--status-gold) 60%, var(--vault-amber)); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+  h2 { font-family: 'Cormorant Garamond', serif; font-size: clamp(34px, 4.6vw, 62px); font-weight: 400; line-height: 1.05; letter-spacing: -0.018em; color: var(--satin-frost); }
+  h2 .accent { color: var(--vault-amber); font-style: italic; }
+  .lede { font-size: 20px; line-height: 1.7; color: var(--matte-alloy); max-width: 680px; }
+  p { color: var(--matte-alloy); }
+
+  /* HERO */
+  .hero { min-height: 92vh; display: flex; align-items: center; padding: 160px 0 100px; }
+  .hero h1 { margin-bottom: 30px; max-width: 16ch; }
+  .hero .lede { margin-bottom: 40px; }
+  .hero-cta { display: flex; gap: 16px; flex-wrap: wrap; }
+  .reassure { margin-top: 34px; display: flex; gap: 26px; flex-wrap: wrap; font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--cold-tungsten); }
+  .reassure span { display: inline-flex; align-items: center; gap: 8px; }
+  .reassure .tick { color: var(--status-green); }
+
+  section { padding: 110px 0; }
+  .section-head { max-width: 760px; margin-bottom: 60px; }
+  .section-head h2 { margin-bottom: 22px; }
+
+  /* PROBLEM */
+  .problem { border-top: 1px solid rgba(74,78,84,.3); border-bottom: 1px solid rgba(74,78,84,.3); background: rgba(20,22,24,.45); }
+  .problem .wrap { display: grid; grid-template-columns: 1fr 1fr; gap: 70px; align-items: center; }
+  .problem .big { font-family: 'Cormorant Garamond', serif; font-size: clamp(30px,3.4vw,46px); line-height: 1.2; color: var(--satin-frost); font-style: italic; }
+  .problem .big b { color: var(--vault-amber); font-weight: 500; font-style: normal; }
+  .problem p { font-size: 17px; }
+
+  /* BENEFITS */
+  .benefit-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; }
+  .benefit { background: linear-gradient(160deg, rgba(44,47,51,.55), rgba(26,28,30,.55)); border: 1px solid rgba(74,78,84,.5); padding: 40px; transition: all .5s var(--ease-power); position: relative; overflow: hidden; }
+  .benefit::before { content: ""; position: absolute; top: 0; left: 0; width: 56px; height: 1px; background: var(--vault-amber); transition: width .4s; }
+  .benefit:hover { transform: translateY(-8px); border-color: rgba(200,133,10,.5); box-shadow: 0 30px 70px rgba(0,0,0,.5); }
+  .benefit:hover::before { width: 100%; }
+  .benefit .bnum { font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: .2em; color: var(--vault-amber); display: block; margin-bottom: 24px; }
+  .benefit h3 { font-family: 'Cormorant Garamond', serif; font-size: 28px; font-weight: 500; color: var(--satin-frost); margin-bottom: 14px; line-height: 1.1; }
+  .benefit p { font-size: 16px; }
+
+  /* DEMO MOCK */
+  .demo { background: linear-gradient(180deg, transparent, rgba(44,47,51,.25), transparent); }
+  .demo .wrap { display: grid; grid-template-columns: 1fr 1.15fr; gap: 64px; align-items: center; }
+  .mock { border: 1px solid rgba(74,78,84,.6); border-radius: 12px; background: rgba(14,15,17,.85); backdrop-filter: blur(12px); overflow: hidden; box-shadow: 0 40px 110px rgba(0,0,0,.6), 0 0 0 1px rgba(200,133,10,.08); }
+  .mock-top { display: flex; align-items: center; gap: 10px; padding: 14px 18px; border-bottom: 1px solid rgba(74,78,84,.5); background: rgba(20,22,24,.7); }
+  .mock-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--brushed-titanium); }
+  .mock-dot.live { background: var(--status-green); box-shadow: 0 0 10px var(--status-green); }
+  .mock-url { margin-left: 8px; font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: .08em; color: var(--cold-tungsten); }
+  .mock-body { padding: 26px 24px; display: flex; flex-direction: column; gap: 16px; }
+  .msg { max-width: 86%; padding: 14px 18px; border-radius: 14px; font-size: 15px; line-height: 1.55; }
+  .msg.you { align-self: flex-end; background: rgba(200,133,10,.12); border: 1px solid rgba(200,133,10,.3); color: var(--satin-frost); border-bottom-right-radius: 4px; }
+  .msg.agent { align-self: flex-start; background: rgba(44,47,51,.8); border: 1px solid rgba(74,78,84,.5); color: var(--satin-frost); border-bottom-left-radius: 4px; }
+  .msg .who { font-family: 'JetBrains Mono', monospace; font-size: 9px; letter-spacing: .18em; text-transform: uppercase; color: var(--vault-amber); margin-bottom: 7px; }
+  .mock-foot { border-top: 1px solid rgba(74,78,84,.5); padding: 14px 18px; display: flex; flex-wrap: wrap; gap: 8px; background: rgba(20,22,24,.6); }
+  .chip { font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: .08em; padding: 5px 11px; border-radius: 100px; border: 1px solid rgba(74,78,84,.6); color: var(--matte-alloy); }
+  .chip.ok { border-color: rgba(111,207,151,.4); color: var(--status-green); }
+  .chip.no { border-color: rgba(217,83,79,.35); color: #E08A87; }
+  .chip.log { border-color: rgba(200,133,10,.4); color: var(--vault-amber); }
+  .demo .caption { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--cold-tungsten); margin-top: 20px; }
+
+  /* USE CASES */
+  .uses { border-top: 1px solid rgba(74,78,84,.3); }
+  .use-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+  .use { border: 1px solid rgba(74,78,84,.5); padding: 36px 30px; background: rgba(26,28,30,.5); transition: all .5s var(--ease-power); }
+  .use:hover { transform: translateY(-6px); border-color: rgba(200,133,10,.5); }
+  .use .ico { font-family: 'Cormorant Garamond', serif; font-style: italic; font-size: 40px; color: var(--vault-amber); display: block; margin-bottom: 16px; line-height: 1; }
+  .use h3 { font-size: 19px; font-weight: 600; color: var(--satin-frost); margin-bottom: 12px; }
+  .use p { font-size: 15px; }
+
+  /* STEPS */
+  .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 40px; counter-reset: s; }
+  .step { position: relative; padding-top: 26px; border-top: 1px solid rgba(74,78,84,.4); }
+  .step .n { font-family: 'Cormorant Garamond', serif; font-style: italic; font-size: 64px; color: var(--vault-amber); line-height: 1; display: block; margin-bottom: 16px; background: linear-gradient(135deg, var(--vault-amber), var(--status-gold)); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+  .step h3 { font-size: 19px; font-weight: 600; color: var(--satin-frost); margin-bottom: 12px; }
+  .step p { font-size: 15px; }
+
+  /* TRUST */
+  .trust { border-top: 1px solid rgba(74,78,84,.3); border-bottom: 1px solid rgba(74,78,84,.3); background: rgba(20,22,24,.5); padding: 56px 0; }
+  .trust .wrap { display: flex; flex-wrap: wrap; gap: 18px 44px; justify-content: center; text-align: center; }
+  .trust span { display: inline-flex; align-items: center; gap: 10px; font-size: 14px; color: var(--matte-alloy); letter-spacing: .02em; }
+  .trust .tick { color: var(--status-green); font-size: 13px; }
+
+  /* CTA */
+  .cta { text-align: center; background: radial-gradient(ellipse at center, rgba(200,133,10,.12), transparent 62%); }
+  .cta h2 { margin-bottom: 22px; }
+  .cta .lede { margin: 0 auto 16px; }
+  .cta .price { font-family: 'JetBrains Mono', monospace; font-size: 13px; letter-spacing: .08em; color: var(--cold-tungsten); margin-bottom: 42px; }
+  .cta .price b { color: var(--vault-amber); font-weight: 500; }
+  .cta-buttons { display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; }
+
+  /* FOOTER */
+  footer { background: rgba(14,15,17,.85); backdrop-filter: blur(20px); border-top: 1px solid rgba(74,78,84,.5); padding: 60px 0 44px; }
+  .foot { display: flex; align-items: center; justify-content: space-between; gap: 18px; flex-wrap: wrap; font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: var(--cold-tungsten); }
+  .foot .tagline { font-family: 'Cormorant Garamond', serif; font-style: italic; font-size: 15px; letter-spacing: .14em; text-transform: none; color: var(--matte-alloy); }
+  .foot a { color: var(--matte-alloy); text-decoration: none; }
+  .foot a:hover { color: var(--vault-amber); }
+
+  /* REVEAL */
+  .reveal { opacity: 0; transform: translateY(34px); transition: opacity .9s var(--ease-power), transform .9s var(--ease-power); }
+  .reveal.visible { opacity: 1; transform: none; }
+
+  @media (max-width: 920px) {
+    body { cursor: auto; }
+    .cursor, .cursor-ring { display: none; }
+    .btn { cursor: pointer; }
+    .nav-links { display: none; }
+    .nav { padding: 0 22px; }
+    .wrap { padding: 0 22px; }
+    section { padding: 80px 0; }
+    .hero { padding: 130px 0 70px; min-height: 0; }
+    .problem .wrap, .demo .wrap { grid-template-columns: 1fr; gap: 40px; }
+    .benefit-grid { grid-template-columns: 1fr; }
+    .use-grid, .steps { grid-template-columns: 1fr; }
+    .steps { gap: 30px; }
+  }
+</style>
+</head>
+<body>
+  <div class="cursor" id="cursor"></div>
+  <div class="cursor-ring" id="cursorRing"></div>
+  <div class="glow"></div>
+  <div class="noise"></div>
+
+  <header>
+    <div class="nav">
+      <a href="/" class="logo"><span class="logo-mark"></span>DIFFRACT</a>
+      <nav class="nav-links">
+        <a href="#what">What it does</a>
+        <a href="#see">See it</a>
+        <a href="#how">How it works</a>
+        <a href="/">Platform &amp; tech →</a>
+      </nav>
+      <a href="https://calendly.com/diffraction-in/30min" target="_blank" rel="noopener" class="btn btn-primary" data-magnetic>Book a demo</a>
+    </div>
+  </header>
+
+  <main>
+
+    <!-- HERO -->
+    <section class="hero">
+      <div class="wrap">
+        <div class="eyebrow reveal">A two-minute look</div>
+        <h1 class="reveal">AI that does the work — <span class="accent">without the risk.</span></h1>
+        <p class="lede reveal">Diffract gives your team autonomous AI agents that get real work done across your tools — while staying inside boundaries you set. Your data stays yours. You stay in control. And there's a complete record of everything they do.</p>
+        <div class="hero-cta reveal">
+          <a href="https://calendly.com/diffraction-in/30min" target="_blank" rel="noopener" class="btn btn-primary" data-magnetic>Book a 30-minute demo</a>
+          <a href="#see" class="btn btn-ghost" data-magnetic>See what it looks like</a>
+        </div>
+        <div class="reassure reveal">
+          <span><span class="tick">✓</span> No data leaves your control</span>
+          <span><span class="tick">✓</span> Set up in minutes</span>
+          <span><span class="tick">✓</span> No engineering required to try</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- PROBLEM -->
+    <section class="problem">
+      <div class="wrap">
+        <div class="reveal">
+          <p class="big">AI agents are powerful enough to actually do things. <b>That's exactly what makes them risky.</b></p>
+        </div>
+        <div class="reveal">
+          <p style="margin-bottom:18px;">An agent that can send an email, move money, or read a customer record can also leak it, overspend, or do something you never intended — and most of them run with full access to whatever they're handed.</p>
+          <p>So projects stall. Security and legal can't sign off on something they can't see or contain. Diffract is built to remove that blocker: real capability, with guardrails your team can actually approve.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- WHAT IT DOES -->
+    <section id="what">
+      <div class="wrap">
+        <div class="section-head reveal">
+          <div class="eyebrow">What Diffract gives you</div>
+          <h2>Capability you can <span class="accent">trust.</span></h2>
+        </div>
+        <div class="benefit-grid">
+          <div class="benefit reveal">
+            <span class="bnum">01</span>
+            <h3>Your data stays yours</h3>
+            <p>Agents only reach the systems you approve — and never see your passwords or keys. Even in a worst case, there's simply nothing for them to leak.</p>
+          </div>
+          <div class="benefit reveal">
+            <span class="bnum">02</span>
+            <h3>You stay in control</h3>
+            <p>Decide exactly what each agent can do and touch. Tighten it, widen it, or switch it off in seconds — the boundaries are yours to set, not the AI's.</p>
+          </div>
+          <div class="benefit reveal">
+            <span class="bnum">03</span>
+            <h3>Everything is on the record</h3>
+            <p>Every action an agent takes is logged in plain sight. Audit, compliance, and your own peace of mind are covered from day one.</p>
+          </div>
+          <div class="benefit reveal">
+            <span class="bnum">04</span>
+            <h3>Nothing is locked in</h3>
+            <p>Use any AI model, your existing tools, and your own accounts. Switch whenever you like. You're never tied to a single vendor's roadmap.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SEE IT -->
+    <section id="see" class="demo">
+      <div class="wrap">
+        <div class="reveal">
+          <div class="eyebrow">See it in plain sight</div>
+          <h2>It does the work.<br>You keep the <span class="accent">oversight.</span></h2>
+          <p class="lede" style="margin-top:22px;">Your team just asks, in plain language. The agent acts only within the tools and limits you've approved — and writes down everything it did.</p>
+          <p class="caption">Every box on the right is real product behaviour — capability, control, and a record, together.</p>
+        </div>
+
+        <div class="reveal">
+          <div class="mock">
+            <div class="mock-top">
+              <span class="mock-dot"></span><span class="mock-dot"></span><span class="mock-dot live"></span>
+              <span class="mock-url">acme.diffraction.in</span>
+            </div>
+            <div class="mock-body">
+              <div class="msg you">
+                <div class="who">Your team</div>
+                Pull this week's overdue invoices and draft a reminder to each account owner.
+              </div>
+              <div class="msg agent">
+                <div class="who">Diffract agent</div>
+                Found 12 overdue invoices — ₹4.2L total. I've drafted a reminder to each account owner in Slack and flagged the 3 largest for your review before anything is sent.
+              </div>
+            </div>
+            <div class="mock-foot">
+              <span class="chip ok">✓ Allowed: CRM · Slack · Email</span>
+              <span class="chip no">✗ Blocked: everything else</span>
+              <span class="chip log">● 4 actions logged</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- USE CASES -->
+    <section id="uses" class="uses">
+      <div class="wrap">
+        <div class="section-head reveal">
+          <div class="eyebrow">Put it to work</div>
+          <h2>Where teams start.</h2>
+        </div>
+        <div class="use-grid">
+          <div class="use reveal">
+            <span class="ico">i</span>
+            <h3>Support that never sleeps</h3>
+            <p>An agent that answers customers across your help desk and CRM, resolves the routine, and escalates only what truly needs a person.</p>
+          </div>
+          <div class="use reveal">
+            <span class="ico">ii</span>
+            <h3>Operations on autopilot</h3>
+            <p>Pull reports, reconcile records, chase approvals, and update your systems — the repetitive work your team shouldn't be doing by hand.</p>
+          </div>
+          <div class="use reveal">
+            <span class="ico">iii</span>
+            <h3>An assistant that knows your business</h3>
+            <p>Answers drawn from your own documents and tools — securely, without that information ever leaving your control.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- HOW IT WORKS -->
+    <section id="how">
+      <div class="wrap">
+        <div class="section-head reveal">
+          <div class="eyebrow">How it works</div>
+          <h2>Live in three <span class="accent">simple steps.</span></h2>
+        </div>
+        <div class="steps">
+          <div class="step reveal">
+            <span class="n">1</span>
+            <h3>We set up your private workspace</h3>
+            <p>A dedicated, isolated Diffract instance on your own private web address. Ready in minutes — nothing to install on anyone's laptop.</p>
+          </div>
+          <div class="step reveal">
+            <span class="n">2</span>
+            <h3>You connect your tools and set the rules</h3>
+            <p>Choose the systems the AI can use and the limits it must stay inside. Your security team signs off once — not on every task.</p>
+          </div>
+          <div class="step reveal">
+            <span class="n">3</span>
+            <h3>Your team gets to work</h3>
+            <p>Talk to your agents in plain language. They do the work; you keep full visibility and can change the rules anytime.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TRUST -->
+    <div class="trust">
+      <div class="wrap reveal">
+        <span><span class="tick">✓</span> Built on NVIDIA's secure runtime</span>
+        <span><span class="tick">✓</span> Your data never leaves your control</span>
+        <span><span class="tick">✓</span> Deploy in days, not quarters</span>
+        <span><span class="tick">✓</span> Audit-ready from day one</span>
+      </div>
+    </div>
+
+    <!-- CTA -->
+    <section class="cta">
+      <div class="wrap reveal">
+        <div class="eyebrow" style="justify-content:center;">See it for yourself</div>
+        <h2>See it working in <span class="accent">your business.</span></h2>
+        <p class="lede">Book a 30-minute walkthrough. We'll show you a live agent doing real work — and exactly how you stay in control of every step.</p>
+        <p class="price">Private workspaces from <b>₹2,000 / month</b> — we'll tailor a plan in the demo.</p>
+        <div class="cta-buttons">
+          <a href="https://calendly.com/diffraction-in/30min" target="_blank" rel="noopener" class="btn btn-primary" data-magnetic>Book a 30-minute demo →</a>
+          <a href="/" class="btn btn-ghost" data-magnetic>See the platform &amp; tech</a>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer>
+    <div class="wrap foot">
+      <span>© 2026 Diffract</span>
+      <span class="tagline">Infrastructure that cannot be breached</span>
+      <span><a href="https://calendly.com/diffraction-in/30min" target="_blank" rel="noopener">Talk to us →</a></span>
+    </div>
+  </footer>
+
+<script>
+  /* custom cursor */
+  (function(){
+    var c = document.getElementById('cursor'), r = document.getElementById('cursorRing');
+    var rx = 0, ry = 0, tx = 0, ty = 0;
+    window.addEventListener('mousemove', function(e){ tx = e.clientX; ty = e.clientY; c.style.left = tx+'px'; c.style.top = ty+'px'; });
+    (function loop(){ rx += (tx-rx)*.18; ry += (ty-ry)*.18; r.style.left = rx+'px'; r.style.top = ry+'px'; requestAnimationFrame(loop); })();
+    document.addEventListener('mouseover', function(e){ if (e.target.closest('a,button')) { r.style.width='64px'; r.style.height='64px'; } });
+    document.addEventListener('mouseout', function(e){ if (e.target.closest('a,button')) { r.style.width='40px'; r.style.height='40px'; } });
+  })();
+
+  /* magnetic buttons */
+  document.querySelectorAll('[data-magnetic]').forEach(function(el){
+    el.addEventListener('mousemove', function(e){
+      var rect = el.getBoundingClientRect();
+      var x = e.clientX - rect.left - rect.width/2, y = e.clientY - rect.top - rect.height/2;
+      el.style.transform = 'translate(' + (x/rect.width)*16 + 'px,' + (y/rect.height)*16 + 'px)';
+    });
+    el.addEventListener('mouseleave', function(){ el.style.transform = 'translate(0,0)'; });
+  });
+
+  /* reveal on scroll */
+  var io = new IntersectionObserver(function(entries){
+    entries.forEach(function(en){ if (en.isIntersecting) { en.target.classList.add('visible'); io.unobserve(en.target); } });
+  }, { threshold: 0.12 });
+  document.querySelectorAll('.reveal').forEach(function(el){ io.observe(el); });
+</script>
+</body>
+</html>

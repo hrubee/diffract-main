@@ -4,6 +4,10 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Diffract — Enterprise AI Agent Runtime</title>
+<meta name="description" content="Diffract runs autonomous AI agents inside kernel-isolated sandboxes built on NVIDIA OpenShell — deny-by-default egress, credentials the agent can never read, and a full audit trail. Any model, any provider. Deploy in one command." />
+<meta property="og:title" content="Diffract — Enterprise AI Agent Runtime" />
+<meta property="og:description" content="Autonomous AI agents your security team can actually approve. Kernel-isolated, policy-controlled, auditable. Deploy in one command." />
+<meta property="og:type" content="website" />
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@300;400;500;600;700;800;900&family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400;1,500&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
   :root {
@@ -1421,10 +1425,10 @@
     <div class="vault-marker m2"></div>
     <div class="vault-marker m3"></div>
     <div class="vault-marker m4"></div>
-    <div class="vault-label tl"><span class="v">VLT-001</span>VAULT NODE</div>
-    <div class="vault-label tr"><span class="v">SECURE</span>SHA256 ✓</div>
-    <div class="vault-label bl"><span class="v">37.7749° N</span>122.4194° W</div>
-    <div class="vault-label br"><span class="v">RUNTIME 1.0</span>STABLE</div>
+    <div class="vault-label tl"><span class="v">SANDBOX</span>ISOLATED NETNS</div>
+    <div class="vault-label tr"><span class="v">EGRESS</span>DENY-BY-DEFAULT</div>
+    <div class="vault-label bl"><span class="v">CREDENTIALS</span>AGENT-BLIND</div>
+    <div class="vault-label br"><span class="v">RUNTIME 1.0</span>OPENSHELL</div>
   </div>
 </div>
 
@@ -1466,7 +1470,7 @@
   <button class="sidenote-close" aria-label="Close">×</button>
   <div class="sidenote-label">Sidenote</div>
   <div class="sidenote-body">
-    Every component on this page is interactive. Move your cursor across the orbiting agents, hover the architecture layers, and watch the model registry respond.
+    Every agent Diffract deploys runs in its own kernel-isolated sandbox — it can only reach the hosts you approve, and never sees your credentials. Hover the architecture layers to watch a request cross each boundary.
   </div>
 </aside>
 
@@ -1477,15 +1481,15 @@
   <span class="status-bar-item">MEM&nbsp;<span id="memTick">31</span>%</span>
   <span class="status-bar-item">LAT&nbsp;<span id="latTick">12</span>ms</span>
   <span class="status-bar-item status-bar-spacer"></span>
-  <span class="status-bar-item">VAULT&nbsp;v1.0</span>
+  <span class="status-bar-item">DIFFRACT&nbsp;v1.0</span>
   <span class="status-bar-item">SCROLL&nbsp;<span id="scrollPct">0</span>%</span>
 </div>
 
 <!-- Brand System Header (Monolith editorial top strip) -->
 <div class="brand-strip">
-  <span class="bs-left">DIFFRACT — BRAND SYSTEM <span class="bs-amber">VAULT v1.0</span></span>
-  <span class="bs-center">INFRASTRUCTURE THAT CANNOT BE BREACHED</span>
-  <span class="bs-right">EDITION 01 / 06 — MACHINE PRECISION</span>
+  <span class="bs-left">DIFFRACT — SECURE AGENT RUNTIME <span class="bs-amber">v1.0</span></span>
+  <span class="bs-center">AGENTS YOUR SECURITY TEAM CAN APPROVE</span>
+  <span class="bs-right">KERNEL-ISOLATED · POLICY-CONTROLLED · AUDITABLE</span>
 </div>
 
 <main>
@@ -1497,18 +1501,18 @@
       <div>
         <div class="hero-meta reveal">
           <span class="pill"><span class="dot"></span>Runtime v1.0 — Stable</span>
-          <span class="pill">Apache 2.0</span>
-          <span class="pill pill-mono">Brooklyn · NY</span>
+          <span class="pill">Built on NVIDIA OpenShell</span>
+          <span class="pill pill-mono">One-command deploy</span>
         </div>
         <h1 class="hero-h1 split-text">
-          <span class="line"><span class="word">Deploy</span> <span class="word">safe,</span></span>
-          <span class="line"><span class="word">autonomous</span> <span class="word accent-word">AI&nbsp;agents</span></span>
-          <span class="line"><span class="word">in</span> <span class="word">one</span> <span class="word">command.</span></span>
+          <span class="line"><span class="word">Autonomous</span> <span class="word accent-word">AI&nbsp;agents</span></span>
+          <span class="line"><span class="word">your</span> <span class="word">security</span> <span class="word">team</span></span>
+          <span class="line"><span class="word">can</span> <span class="word">actually</span> <span class="word">approve.</span></span>
         </h1>
-        <p class="lede reveal">Enterprise AI Agent Runtime built on kernel-level isolation — Landlock LSM, seccomp BPF, and network namespaces. Multi-provider inference routing with YAML policy control. Infrastructure that cannot be breached.</p>
+        <p class="lede reveal">Diffract runs every agent inside a kernel-isolated sandbox — deny-by-default egress, credentials it can never read, and a complete audit trail. Any model, any provider, hot-swapped at runtime. Deploy it in one command, self-hosted or fully managed.</p>
         <div class="hero-cta reveal">
           <a href="https://calendly.com/diffraction-in/30min" target="_blank" rel="noopener" class="btn btn-primary" data-magnetic>Schedule a Meeting</a>
-          <a href="https://calendly.com/diffraction-in/30min" target="_blank" rel="noopener" class="btn btn-ghost" data-magnetic>Schedule a Meeting</a>
+          <a href="#architecture" class="btn btn-ghost" data-magnetic>See how it works</a>
         </div>
       </div>
 
@@ -1524,29 +1528,29 @@
 <!-- HORIZONTAL MARQUEE TICKER -->
 <div class="marquee-strip" aria-hidden="true">
   <div class="marquee-track">
-    <span class="marquee-item">KERNEL-LEVEL ISOLATION</span>
+    <span class="marquee-item">KERNEL-ISOLATED SANDBOX</span>
     <span class="marquee-divider">◆</span>
-    <span class="marquee-item">ZERO TRUST RUNTIME</span>
+    <span class="marquee-item">DENY-BY-DEFAULT EGRESS</span>
     <span class="marquee-divider">◆</span>
-    <span class="marquee-item">11 MODELS · 1 ROUTER</span>
+    <span class="marquee-item">AGENT-BLIND CREDENTIALS</span>
     <span class="marquee-divider">◆</span>
-    <span class="marquee-item">YAML POLICY CONTROL</span>
+    <span class="marquee-item">ANY MODEL · ANY PROVIDER</span>
     <span class="marquee-divider">◆</span>
-    <span class="marquee-item">SHA256 INTEGRITY</span>
+    <span class="marquee-item">FULL AUDIT TRAIL</span>
     <span class="marquee-divider">◆</span>
-    <span class="marquee-item">APACHE 2.0 OPEN SOURCE</span>
+    <span class="marquee-item">ONE-COMMAND DEPLOY</span>
     <span class="marquee-divider">◆</span>
-    <span class="marquee-item">KERNEL-LEVEL ISOLATION</span>
+    <span class="marquee-item">KERNEL-ISOLATED SANDBOX</span>
     <span class="marquee-divider">◆</span>
-    <span class="marquee-item">ZERO TRUST RUNTIME</span>
+    <span class="marquee-item">DENY-BY-DEFAULT EGRESS</span>
     <span class="marquee-divider">◆</span>
-    <span class="marquee-item">11 MODELS · 1 ROUTER</span>
+    <span class="marquee-item">AGENT-BLIND CREDENTIALS</span>
     <span class="marquee-divider">◆</span>
-    <span class="marquee-item">YAML POLICY CONTROL</span>
+    <span class="marquee-item">ANY MODEL · ANY PROVIDER</span>
     <span class="marquee-divider">◆</span>
-    <span class="marquee-item">SHA256 INTEGRITY</span>
+    <span class="marquee-item">FULL AUDIT TRAIL</span>
     <span class="marquee-divider">◆</span>
-    <span class="marquee-item">APACHE 2.0 OPEN SOURCE</span>
+    <span class="marquee-item">ONE-COMMAND DEPLOY</span>
     <span class="marquee-divider">◆</span>
   </div>
 </div>
@@ -1554,20 +1558,20 @@
 <!-- STATS -->
 <div class="stats-strip">
   <div class="stats-grid">
-    <div class="stat reveal"><div class="num count" data-target="11" data-suffix="+">00</div><div class="label">AI Models</div></div>
-    <div class="stat reveal"><div class="num count" data-target="1" data-pad="2">00</div><div class="label">Command Setup</div></div>
-    <div class="stat reveal"><div class="num count" data-target="0" data-pad="2">00</div><div class="label">Key Leakage</div></div>
-    <div class="stat reveal"><div class="num count" data-target="20" data-suffix="+">00</div><div class="label">Platforms</div></div>
+    <div class="stat reveal"><div class="num count" data-target="15" data-suffix="+">00</div><div class="label">Model Providers</div></div>
+    <div class="stat reveal"><div class="num count" data-target="1" data-pad="2">00</div><div class="label">Command to Deploy</div></div>
+    <div class="stat reveal"><div class="num count" data-target="0" data-pad="2">00</div><div class="label">Secrets the Agent Can Read</div></div>
+    <div class="stat reveal"><div class="num count" data-target="20" data-suffix="+">00</div><div class="label">Tool &amp; Channel Integrations</div></div>
   </div>
   <div class="tech-marquee reveal">
+    <span>NVIDIA OpenShell</span>
     <span>Landlock LSM</span>
-    <span>seccomp BPF</span>
+    <span>seccomp-BPF</span>
     <span>Network Namespaces</span>
-    <span>NVIDIA NIM</span>
-    <span>Anthropic Claude</span>
-    <span>OpenAI GPT</span>
-    <span>k3s / Kubernetes</span>
     <span>Caddy HTTPS</span>
+    <span>Anthropic Claude</span>
+    <span>NVIDIA Nemotron</span>
+    <span>OpenAI-compatible</span>
   </div>
 </div>
 
@@ -1583,39 +1587,39 @@
     <div class="features-grid">
       <div class="feature reveal">
         <div class="icon"><svg viewBox="0 0 50 50"><rect x="8" y="8" width="34" height="34" rx="2"/><rect x="16" y="16" width="18" height="18" rx="1"/><circle cx="25" cy="25" r="3" fill="currentColor"/></svg></div>
-        <span class="num">01 / KERNEL</span>
-        <h3>Kernel-Level Isolation</h3>
-        <p>Deny-by-default network egress, API key isolation, L7 TLS MITM inspection, and full privilege separation enforced at the syscall boundary.</p>
+        <span class="num">01 / ISOLATION</span>
+        <h3>Kernel-Level Sandbox</h3>
+        <p>Every agent runs in its own sandbox built on NVIDIA OpenShell — network namespaces, Landlock and seccomp enforce isolation at the syscall boundary. It can't touch the host, your network, or another workload.</p>
       </div>
       <div class="feature reveal">
         <div class="icon"><svg viewBox="0 0 50 50"><circle cx="12" cy="25" r="6"/><circle cx="38" cy="12" r="6"/><circle cx="38" cy="38" r="6"/><line x1="18" y1="25" x2="32" y2="12"/><line x1="18" y1="25" x2="32" y2="38"/></svg></div>
-        <span class="num">02 / INFERENCE</span>
-        <h3>Multi-Provider Routing</h3>
-        <p>Hot-swap between Claude, GPT, Llama, Nemotron and more at runtime — no restarts, no downtime, no leaked credentials.</p>
+        <span class="num">02 / EGRESS</span>
+        <h3>Deny-by-Default Networking</h3>
+        <p>The sandbox's only way out is a policy proxy. Your agent reaches the hosts you approve — and nothing else. Every connection is inspected, logged, and revocable in seconds.</p>
       </div>
       <div class="feature reveal">
         <div class="icon"><svg viewBox="0 0 50 50"><path d="M10 12 L40 12 L40 38 L10 38 Z"/><line x1="16" y1="20" x2="34" y2="20"/><line x1="16" y1="26" x2="28" y2="26"/><line x1="16" y1="32" x2="32" y2="32"/></svg></div>
-        <span class="num">03 / POLICY</span>
-        <h3>YAML Policy Control</h3>
-        <p>Declarative host, port and method restrictions with shipping presets. Audit-friendly, version-controlled, GitOps-ready.</p>
+        <span class="num">03 / SECRETS</span>
+        <h3>Credentials the Agent Can't Read</h3>
+        <p>API keys and tokens are injected at the boundary, never into the agent's reach. Even a fully compromised agent has no secret to steal and nothing to exfiltrate.</p>
       </div>
       <div class="feature reveal">
         <div class="icon"><svg viewBox="0 0 50 50"><path d="M8 14 L42 14 L42 32 L28 32 L20 40 L20 32 L8 32 Z"/><circle cx="18" cy="23" r="1.5" fill="currentColor"/><circle cx="25" cy="23" r="1.5" fill="currentColor"/><circle cx="32" cy="23" r="1.5" fill="currentColor"/></svg></div>
-        <span class="num">04 / CHANNELS</span>
-        <h3>20+ Messaging Channels</h3>
-        <p>Native bridges to Telegram, Discord, Slack, WhatsApp and beyond. Deploy a new surface in a single command.</p>
+        <span class="num">04 / TOOLS</span>
+        <h3>Connect Your Stack, Safely</h3>
+        <p>Give the agent your CLIs, CRMs, and internal APIs through scoped, credential-isolated connections. It acts on your behalf — and reaches Slack, Telegram, Discord and 20+ channels — without ever holding the key.</p>
       </div>
       <div class="feature reveal">
         <div class="icon"><svg viewBox="0 0 50 50"><circle cx="25" cy="25" r="16"/><path d="M25 14 L25 25 L33 30"/></svg></div>
         <span class="num">05 / OPS</span>
-        <h3>Production Operations</h3>
-        <p>Watchdog supervision, fork-bomb prevention, integrity diagnostics, and automatic recovery — battle-tested for 24/7 uptime.</p>
+        <h3>Built to Run in Production</h3>
+        <p>Watchdog supervision, resource caps, and self-healing recovery, plus a full dashboard for sessions, logs and policy. Operable 24/7 by the team that owns it.</p>
       </div>
       <div class="feature reveal">
         <div class="icon"><svg viewBox="0 0 50 50"><polygon points="25,8 42,17 42,33 25,42 8,33 8,17"/><polygon points="25,18 33,22 33,30 25,34 17,30 17,22"/></svg></div>
-        <span class="num">06 / HUB</span>
-        <h3>Skills Marketplace</h3>
-        <p>Install vetted agent capabilities from the hub. SHA256-verified, sandboxed by default, removable in one command.</p>
+        <span class="num">06 / MODELS</span>
+        <h3>Any Model, No Lock-In</h3>
+        <p>Hot-swap Claude, GPT, Gemini, Llama or NVIDIA Nemotron at runtime — no restarts, no SDK churn. Bring any OpenAI-compatible provider, and your own keys.</p>
       </div>
     </div>
   </div>
@@ -1628,19 +1632,19 @@
       <div class="reveal">
         <span class="section-label">Architecture</span>
         <h2>Six layers,<br><span class="accent">zero trust.</span></h2>
-        <p class="lede">Every request crosses a defined boundary. Every boundary enforces policy. Every policy is auditable from CLI to kernel.</p>
+        <p class="lede">Every request crosses a defined boundary. Every boundary enforces policy. From the dashboard down to the kernel, every action an agent takes is logged and reviewable.</p>
         <div style="margin-top: 40px;">
-          <a href="https://calendly.com/diffraction-in/30min" target="_blank" rel="noopener" class="btn">Schedule a Meeting</a>
+          <a href="#security" class="btn">Explore the security model</a>
         </div>
       </div>
 
       <div class="layers reveal">
-        <div class="layer"><span class="layer-name">CLI Interface</span><span class="layer-tag">Node.js</span></div>
-        <div class="layer"><span class="layer-name">OpenShell Runtime</span><span class="layer-tag">Rust</span></div>
-        <div class="layer"><span class="layer-name">Caddy Reverse Proxy</span><span class="layer-tag">L7 TLS</span></div>
-        <div class="layer"><span class="layer-name">Sandbox Entrypoint</span><span class="layer-tag">Landlock</span></div>
-        <div class="layer"><span class="layer-name">Agent Gateway · NetNS</span><span class="layer-tag">seccomp</span></div>
-        <div class="layer"><span class="layer-name">Inference Router</span><span class="layer-tag">Multi-Provider</span></div>
+        <div class="layer"><span class="layer-name">Diffract — Dashboard &amp; CLI</span><span class="layer-tag">TypeScript</span></div>
+        <div class="layer"><span class="layer-name">Caddy — Reverse Proxy</span><span class="layer-tag">HTTPS · TLS</span></div>
+        <div class="layer"><span class="layer-name">NemoClaw — Orchestration</span><span class="layer-tag">Provisioning</span></div>
+        <div class="layer"><span class="layer-name">OpenShell — Sandbox Runtime</span><span class="layer-tag">NVIDIA</span></div>
+        <div class="layer"><span class="layer-name">Egress Policy Proxy</span><span class="layer-tag">netns</span></div>
+        <div class="layer"><span class="layer-name">Diffract Agent — Isolated</span><span class="layer-tag">Landlock · seccomp</span></div>
       </div>
     </div>
   </div>
@@ -1651,17 +1655,17 @@
   <div class="container">
     <div class="reveal">
       <span class="section-label">Security Model</span>
-      <h2>Infrastructure that<br><span class="accent">cannot be breached.</span></h2>
-      <p class="lede">Six guarantees baked into the runtime. Not bolted on — enforced at the kernel.</p>
+      <h2>Contained<br><span class="accent">by design.</span></h2>
+      <p class="lede">Six controls enforced in the runtime — not bolted on afterward. Each one is something you can put in front of your auditors.</p>
     </div>
 
     <div class="security-grid">
-      <div class="sec-card reveal"><span class="idx">i.</span><h3>Deny-by-Default Networking</h3><p>No egress unless declared in policy. Every connection inspected, logged, and rate-limited at the gateway.</p></div>
-      <div class="sec-card reveal"><span class="idx">ii.</span><h3>L7 TLS Inspection</h3><p>Caddy terminates and re-encrypts agent traffic, exposing payloads to policy filters before forwarding.</p></div>
-      <div class="sec-card reveal"><span class="idx">iii.</span><h3>API Key Injection</h3><p>Credentials never enter the agent process. Injected at the proxy layer, scrubbed from every log.</p></div>
-      <div class="sec-card reveal"><span class="idx">iv.</span><h3>Operator Approval</h3><p>Sensitive actions pause for human confirmation via signed channel. Approvals are cryptographically logged.</p></div>
-      <div class="sec-card reveal"><span class="idx">v.</span><h3>Fork-Bomb Prevention</h3><p>Cgroup limits cap process count, memory, and CPU. Runaway agents are killed before they affect the host.</p></div>
-      <div class="sec-card reveal"><span class="idx">vi.</span><h3>SHA256 Integrity</h3><p>Every binary, skill, and policy is hash-verified at load time. Tampered artifacts refuse to run.</p></div>
+      <div class="sec-card reveal"><span class="idx">i.</span><h3>Deny-by-Default Networking</h3><p>No egress unless you declare it. The sandbox routes out through a single policy proxy — every connection inspected, logged, and rate-limited.</p></div>
+      <div class="sec-card reveal"><span class="idx">ii.</span><h3>Network-Namespace Isolation</h3><p>Each agent gets its own network namespace, filesystem, and process tree. It can't see the host, your internal network, or another tenant's workload.</p></div>
+      <div class="sec-card reveal"><span class="idx">iii.</span><h3>Agent-Blind Credentials</h3><p>Keys are injected at the boundary, never into the agent. A compromised agent has no secret to steal and nothing to leak.</p></div>
+      <div class="sec-card reveal"><span class="idx">iv.</span><h3>Host Approval &amp; Egress Control</h3><p>Add or revoke the exact hosts an agent may reach from one policy. Changes apply live, and every approval is recorded.</p></div>
+      <div class="sec-card reveal"><span class="idx">v.</span><h3>Resource Containment</h3><p>Cgroup limits cap CPU, memory, and process count. A runaway or forked agent is killed before it can touch the host.</p></div>
+      <div class="sec-card reveal"><span class="idx">vi.</span><h3>Full Audit Trail</h3><p>Every session, tool call, and egress decision is logged and reviewable in the dashboard — the evidence your compliance team asks for.</p></div>
     </div>
   </div>
 </section>
@@ -1671,19 +1675,20 @@
   <div class="container">
     <div class="reveal">
       <span class="section-label">Model Registry</span>
-      <h2>Eleven models,<br><span class="accent">one router.</span></h2>
-      <p class="lede">Switch providers in real time. No SDK reshuffling, no environment swaps, no leaked tokens.</p>
+      <h2>Any model,<br><span class="accent">one router.</span></h2>
+      <p class="lede">Switch providers in real time. No SDK reshuffling, no environment swaps, no re-leaked tokens. Bring your own keys — or use ours.</p>
     </div>
 
     <div class="models-table reveal">
-      <div class="model-row head"><div></div><div>Model</div><div>Provider</div><div>Switch Command</div><div>Status</div></div>
-      <div class="model-row"><div class="ix">01</div><div class="name">Claude Sonnet 4.5</div><div class="prov">Anthropic</div><div class="cmd">diffract use claude-sonnet</div><div><span class="badge">Active</span></div></div>
-      <div class="model-row"><div class="ix">02</div><div class="name">Claude Opus 4</div><div class="prov">Anthropic</div><div class="cmd">diffract use claude-opus</div><div><span class="badge">Active</span></div></div>
-      <div class="model-row"><div class="ix">03</div><div class="name">GPT-4.1</div><div class="prov">OpenAI</div><div class="cmd">diffract use gpt-4.1</div><div><span class="badge">Active</span></div></div>
-      <div class="model-row"><div class="ix">04</div><div class="name">GPT-4o</div><div class="prov">OpenAI</div><div class="cmd">diffract use gpt-4o</div><div><span class="badge">Active</span></div></div>
-      <div class="model-row"><div class="ix">05</div><div class="name">Nemotron 70B</div><div class="prov">NVIDIA NIM</div><div class="cmd">diffract use nemotron</div><div><span class="badge">Active</span></div></div>
-      <div class="model-row"><div class="ix">06</div><div class="name">Llama 4 Scout</div><div class="prov">Meta</div><div class="cmd">diffract use llama-scout</div><div><span class="badge">Active</span></div></div>
+      <div class="model-row head"><div></div><div>Model</div><div>Provider</div><div>Strength</div><div>Status</div></div>
+      <div class="model-row"><div class="ix">01</div><div class="name">Claude Opus 4.8</div><div class="prov">Anthropic</div><div class="cmd">frontier reasoning</div><div><span class="badge">Available</span></div></div>
+      <div class="model-row"><div class="ix">02</div><div class="name">Claude Sonnet 4.6</div><div class="prov">Anthropic</div><div class="cmd">fast · balanced</div><div><span class="badge">Available</span></div></div>
+      <div class="model-row"><div class="ix">03</div><div class="name">GPT-class</div><div class="prov">OpenAI</div><div class="cmd">general-purpose</div><div><span class="badge">Available</span></div></div>
+      <div class="model-row"><div class="ix">04</div><div class="name">Gemini</div><div class="prov">Google</div><div class="cmd">multimodal</div><div><span class="badge">Available</span></div></div>
+      <div class="model-row"><div class="ix">05</div><div class="name">Llama</div><div class="prov">Meta</div><div class="cmd">open weights</div><div><span class="badge">Available</span></div></div>
+      <div class="model-row"><div class="ix">06</div><div class="name">Nemotron</div><div class="prov">NVIDIA NIM</div><div class="cmd">runs on your GPUs</div><div><span class="badge">Active</span></div></div>
     </div>
+    <p class="lede reveal" style="margin-top:24px;font-size:14px;">+ DeepSeek, Qwen, Moonshot, Mistral, GLM and OpenRouter — or any OpenAI-compatible endpoint.</p>
   </div>
 </section>
 
@@ -1693,13 +1698,13 @@
     <div class="reveal">
       <span class="section-label">Quick Start</span>
       <h2>Three steps to<br><span class="accent">production.</span></h2>
-      <p class="lede">From zero to a sandboxed, multi-provider agent in under five minutes.</p>
+      <p class="lede">From zero to a sandboxed, multi-provider agent in minutes — self-hosted, or fully managed by us.</p>
     </div>
 
     <div class="qs-grid">
-      <div class="step reveal"><span class="step-num">i</span><h3>Install</h3><p>Single binary. No daemons, no system services, no hidden state.</p><code>$ npm i -g diffract</code></div>
-      <div class="step reveal"><span class="step-num">ii</span><h3>Onboard</h3><p>Provision the kernel sandbox, register your providers, and spin up the proxy.</p><code>$ diffract onboard</code></div>
-      <div class="step reveal"><span class="step-num">iii</span><h3>Deploy</h3><p>Hand the runtime a YAML manifest. The runtime handles the rest — securely.</p><code>$ diffract deploy agent.yaml</code></div>
+      <div class="step reveal"><span class="step-num">i</span><h3>Install</h3><p>One command pulls everything — Node, Docker, the OpenShell runtime, and the Diffract stack.</p><code>$ curl -fsSL https://diffraction.in/install.sh | bash</code></div>
+      <div class="step reveal"><span class="step-num">ii</span><h3>Onboard</h3><p>Provision an isolated sandbox, register your model providers, and bring up the gateway and dashboard.</p><code>$ diffract onboard</code></div>
+      <div class="step reveal"><span class="step-num">iii</span><h3>Operate</h3><p>Open the dashboard to chat, connect your tools, and set the egress policy your security team signs off on.</p><code># open your private dashboard</code></div>
     </div>
   </div>
 </section>
@@ -1707,11 +1712,12 @@
 <!-- CTA -->
 <section class="cta-section">
   <div class="container reveal">
-    <span class="section-label" style="justify-content: center;">Schedule Meeting</span>
+    <span class="section-label" style="justify-content: center;">Get Started</span>
     <h2>Ready to deploy your<br><span class="accent">first agent?</span></h2>
-    <p class="lede">Open source. Self-hosted. Audit-ready. Built for teams who refuse to trade safety for speed.</p>
+    <p class="lede">Self-hosted or fully managed. Audit-ready from day one. Built for teams who refuse to trade safety for speed.</p>
     <div class="cta-buttons">
       <a href="https://calendly.com/diffraction-in/30min" target="_blank" rel="noopener" class="btn btn-primary" data-magnetic>Schedule a Meeting →</a>
+      <a href="#start" class="btn btn-ghost" data-magnetic>Install it yourself</a>
     </div>
   </div>
 </section>
@@ -1723,7 +1729,7 @@
   <div class="foot-grid">
     <div class="foot-brand">
       <a href="#top" class="logo" data-scroll-top><span class="logo-mark"></span>DIFFRACT</a>
-      <p>Enterprise AI Agent Runtime. Kernel-level isolation, multi-provider inference, and YAML policy control — in one command.</p>
+      <p>The enterprise platform for autonomous AI agents — kernel-isolated, policy-controlled, and auditable. Built on NVIDIA OpenShell. Deploy in one command.</p>
     </div>
     <div class="foot-col">
       <h4>Product</h4>
@@ -1733,24 +1739,21 @@
       <a href="#security">Security</a>
     </div>
     <div class="foot-col">
-      <h4>Resources</h4>
+      <h4>Platform</h4>
       <a href="#start">Quick Start</a>
-      <a href="#architecture">Setup Guide</a>
-      <a href="https://calendly.com/diffraction-in/30min" target="_blank" rel="noopener">Schedule Meeting</a>
-      <a href="https://www.apache.org/licenses/LICENSE-2.0" target="_blank" rel="noopener">License</a>
+      <a href="#security">Security Model</a>
+      <a href="#models">Model Registry</a>
     </div>
     <div class="foot-col">
-      <h4>Community</h4>
-      <a href="https://discord.gg/diffract" target="_blank" rel="noopener">Discord</a>
-      <a href="https://twitter.com/diffract" target="_blank" rel="noopener">Twitter / X</a>
-      <a href="https://github.com/diffract/releases" target="_blank" rel="noopener">Changelog</a>
-      <a href="https://status.diffract.dev" target="_blank" rel="noopener">Status</a>
+      <h4>Get Started</h4>
+      <a href="https://calendly.com/diffraction-in/30min" target="_blank" rel="noopener">Schedule a Meeting</a>
+      <a href="#start">Self-host in one command</a>
     </div>
   </div>
   <div class="foot-bottom">
-    <span>© 2026 Diffract — Apache 2.0</span>
+    <span>© 2026 Diffract</span>
     <span class="tagline">Infrastructure that cannot be breached</span>
-    <span>Built on OpenShell + OpenClaw</span>
+    <span>Built on NVIDIA OpenShell</span>
   </div>
 </footer>
 

@@ -14,4 +14,6 @@
   RewriteRule ^api/claim/?$ api/claim.php [L]
   # Pretty URL: /signup -> /signup.html (URL stays /signup).
   RewriteRule ^signup/?$ signup.html [L]
+  # Pretty URL: /demo -> /demo.html (non-technical overview).
+  RewriteRule ^demo/?$ demo.html [L]
 </IfModule>

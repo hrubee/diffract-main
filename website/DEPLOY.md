@@ -11,7 +11,8 @@ Server account: `u878019455` · web root: `/home/u878019455/domains/diffraction.
 
 | File | Purpose |
 |------|---------|
-| `index.html`        | Landing page → becomes `diffraction.in`. Static, no backend. |
+| `index.html`        | Landing page → becomes `diffraction.in`. Static, no backend. Technical/product audience. |
+| `demo.html`         | Plain-English overview for non-technical / enterprise leaders, served at `/demo`. Static, no backend. |
 | `diffract.tar.gz`   | Product release. `install.sh` downloads it from `https://diffraction.in/diffract.tar.gz` — **must sit at public_html root.** (~21 MB; verified current + no bundled secrets.) |
 | `install.sh`        | Installer mirror. |
 | `signup.html`       | **Payment-first** flow: subscribe → Dodo checkout → (on return) name your workspace. Direct URL only; not linked from the landing page. |
