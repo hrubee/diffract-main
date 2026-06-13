@@ -28,11 +28,18 @@ export type WechatConfig = {
   userId?: string;
 };
 
+// Diffract: MCP servers injected at agent-image build time so the chat daemon
+// connects at a clean startup. The URL holds a ${SECRET_ENV} placeholder (the
+// real token lives in an OpenShell provider); the daemon interpolates it and the
+// L7 proxy substitutes at egress. Keyed by server name.
+export type McpServersConfig = Record<string, { url: string; enabled?: boolean }>;
+
 export type HermesBuildSettings = {
   model: string;
   baseUrl: string;
   providerKey: string;
   inferenceApi: string;
+  mcpServers: McpServersConfig;
   managedToolGateways: {
     brokerEnabled: boolean;
     presets: string[];
@@ -55,6 +62,7 @@ export function readHermesBuildSettings(env: NodeJS.ProcessEnv): HermesBuildSett
     baseUrl,
     providerKey: env.NEMOCLAW_PROVIDER_KEY || "custom",
     inferenceApi: env.NEMOCLAW_INFERENCE_API || "",
+    mcpServers: readBase64Json<McpServersConfig>(env, "NEMOCLAW_MCP_SERVERS_B64", "e30="),
     managedToolGateways: {
       brokerEnabled: env.NEMOCLAW_HERMES_TOOL_GATEWAY_BROKER === "1",
       presets: readBase64Json<string[]>(

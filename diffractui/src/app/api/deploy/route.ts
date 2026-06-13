@@ -125,6 +125,24 @@ export async function GET(request: Request) {
     // wired on a later recreate once connected.
   }
 
+  // Inject connected MCP servers into the agent config at CREATE (base64 JSON of
+  // {name:{url,enabled}}). generate-config writes them into the chat agent's config
+  // at agent-image build time, so the daemon starts WITH the servers enabled and
+  // connects once at a clean startup — instead of the fragile post-create write +
+  // gateway reload. The URLs hold ${SECRET_ENV} placeholders; the token lives in
+  // the OpenShell provider attached at create (above).
+  try {
+    const mcpConfig = execSync("/usr/local/bin/diffract-mcp-sync.sh config", {
+      encoding: "utf8",
+      timeout: 15000,
+    }).trim();
+    if (mcpConfig && mcpConfig !== "{}") {
+      env.NEMOCLAW_MCP_SERVERS_B64 = Buffer.from(mcpConfig, "utf8").toString("base64");
+    }
+  } catch {
+    /* mcp sync helper missing — no MCP servers to inject at create */
+  }
+
   const encoder = new TextEncoder();
 
   const stream = new ReadableStream({

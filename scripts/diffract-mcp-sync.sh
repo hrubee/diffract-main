@@ -93,6 +93,24 @@ case "$MODE" in
     exit $rc
     ;;
 
+  config)
+    # Emit mcp_servers as JSON ({name:{url,enabled:true}}) for CREATE-TIME
+    # injection: the deploy route base64-encodes this into NEMOCLAW_MCP_SERVERS_B64
+    # so generate-config writes mcp_servers into the agent config at build time and
+    # the chat daemon connects at a clean startup. URLs hold ${SECRET_ENV}
+    # placeholders (the token lives in the OpenShell provider attached at create).
+    if ! command -v jq >/dev/null 2>&1; then echo "{}"; exit 0; fi
+    printf '{'
+    first=1
+    for f in $(records); do
+      IFS='|' read -r NAME URL SECRET_ENV HOST PROVIDER < <(record_fields "$f")
+      [ -z "$NAME" ] && continue
+      [ $first -eq 0 ] && printf ','; first=0
+      printf '%s:{"url":%s,"enabled":true}' "$(jq -nc --arg v "$NAME" '$v')" "$(jq -nc --arg v "$URL" '$v')"
+    done
+    printf '}\n'
+    ;;
+
   list)
     for f in $(records); do
       IFS='|' read -r NAME URL SECRET_ENV HOST PROVIDER < <(record_fields "$f")
@@ -101,5 +119,5 @@ case "$MODE" in
     ;;
 
   *)
-    echo "usage: $0 providers | apply [<sandbox>] | list" >&2; exit 2 ;;
+    echo "usage: $0 providers | apply [<sandbox>] | config | list" >&2; exit 2 ;;
 esac

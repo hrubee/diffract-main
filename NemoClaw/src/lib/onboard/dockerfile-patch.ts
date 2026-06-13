@@ -243,5 +243,16 @@ export function patchStagedDockerfile(
       `ARG NEMOCLAW_HERMES_TOOL_GATEWAY_PRESETS_B64=${encodeSanitizedDockerJsonArg(hermesToolGateways)}`,
     );
   }
+  // Diffract: MCP servers (base64 JSON of {name:{url,enabled}}). The diffractui
+  // deploy route sets NEMOCLAW_MCP_SERVERS_B64 from the host-side MCP records;
+  // patch it into the agent Dockerfile so generate-config writes mcp_servers at
+  // build time and the chat daemon connects at a clean startup.
+  const mcpServersB64 = process.env.NEMOCLAW_MCP_SERVERS_B64;
+  if (mcpServersB64 && /^[A-Za-z0-9+/=]+$/.test(mcpServersB64) && mcpServersB64 !== "e30=") {
+    dockerfile = dockerfile.replace(
+      /^ARG NEMOCLAW_MCP_SERVERS_B64=.*$/m,
+      `ARG NEMOCLAW_MCP_SERVERS_B64=${sanitizeDockerArg(mcpServersB64)}`,
+    );
+  }
   fs.writeFileSync(dockerfilePath, dockerfile);
 }

@@ -109,5 +109,18 @@ export function buildHermesConfig(settings: HermesBuildSettings): Record<string,
     },
   };
 
+  // Diffract: MCP servers connected from the dashboard. Writing them here (at
+  // agent-image build / create) — rather than post-create — means the chat daemon
+  // starts WITH the servers enabled and connects once, at a clean startup (a
+  // post-create write + gateway reload is fragile). The `mcp` toolset is added so
+  // the agent surfaces the servers' tools. URLs hold ${SECRET_ENV} placeholders;
+  // the token lives in an OpenShell provider attached at create.
+  if (settings.mcpServers && Object.keys(settings.mcpServers).length > 0) {
+    config.mcp_servers = settings.mcpServers;
+    if (!apiServerToolsets.includes("mcp")) {
+      apiServerToolsets.push("mcp");
+    }
+  }
+
   return config;
 }
