@@ -648,7 +648,12 @@ docker exec $CONTAINER_ID /opt/hermes/.venv/bin/python -c "import ptyprocess" 2>
   || docker exec $CONTAINER_ID /opt/hermes/.venv/bin/python -m pip install "ptyprocess==0.7.0" || true
 
 echo "Starting Hermes dashboard (embedded TUI chat, OpenShell inference) in container..."
-docker exec -u sandbox -e HERMES_WEB_DIST=/opt/hermes/web_dist $CONTAINER_ID \
+# HOME=/sandbox is REQUIRED: the dashboard runs as the sandbox user, but without an
+# explicit HOME it inherits /root (unreadable by sandbox). Path.home() then points at
+# /root and toolset enumeration's (Path.home()/".modal.toml").exists() raises
+# PermissionError instead of returning False -> /api/tools/toolsets 500 -> the Skills
+# page (Promise.all of skills+toolsets) renders blank. Pinning HOME=/sandbox fixes it.
+docker exec -u sandbox -e HOME=/sandbox -e HERMES_WEB_DIST=/opt/hermes/web_dist $CONTAINER_ID \
   bash -c '. /tmp/nemoclaw-proxy-env.sh 2>/dev/null; exec /opt/hermes/.venv/bin/python /usr/local/bin/hermes dashboard --host 0.0.0.0 --skip-build --insecure --tui'
 EOF
     chmod +x /usr/local/bin/sandbox-port-forwarder.sh
