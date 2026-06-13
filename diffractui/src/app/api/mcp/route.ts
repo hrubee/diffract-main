@@ -25,6 +25,9 @@ const MCP_DIR = process.env.DIFFRACT_MCP_DIR || "/var/lib/diffract/connected-mcp
 
 // Detect the secret query param in an MCP URL (Zapier `?token=…`, etc.).
 const SECRET_PARAM_RE = /[?&]([a-z0-9_]*(?:token|key|secret|auth|apikey)[a-z0-9_]*)=([^&#\s]+)/i;
+// A request-header name for header-authenticated MCP servers (e.g. Stitch's
+// `X-Goog-Api-Key`, or `Authorization`). Letters/digits/hyphens; injection-safe.
+const HEADER_NAME_RE = /^[A-Za-z][A-Za-z0-9-]{0,60}$/;
 
 async function requireSession(): Promise<Response | null> {
   const token = (await cookies()).get(SESSION_COOKIE)?.value;
@@ -84,7 +87,7 @@ export async function POST(req: Request): Promise<Response> {
   const unauth = await requireSession();
   if (unauth) return unauth;
 
-  let body: { sandbox?: string; name?: string; url?: string };
+  let body: { sandbox?: string; name?: string; url?: string; authHeader?: string; apiKey?: string };
   try {
     body = await req.json();
   } catch {
@@ -93,6 +96,8 @@ export async function POST(req: Request): Promise<Response> {
   const sandbox = body.sandbox || "";
   const name = (body.name || "").trim();
   const url = (body.url || "").trim();
+  const authHeader = (body.authHeader || "").trim();
+  const apiKey = (body.apiKey || "").trim();
 
   if (!SANDBOX_NAME_RE.test(sandbox)) {
     return Response.json({ error: "Invalid sandbox name" }, { status: 400 });
@@ -117,21 +122,37 @@ export async function POST(req: Request): Promise<Response> {
     return Response.json({ error: "Invalid MCP URL" }, { status: 400 });
   }
 
-  // Extract the secret token embedded in the URL (Zapier-style ?token=…) so it
-  // can be held host-side. The URL we persist replaces it with ${SECRET_ENV}.
+  // Two auth styles, both privacy-preserving (secret held host-side; the agent
+  // config keeps a ${SECRET_ENV} placeholder the L7 proxy substitutes at egress):
+  //   • URL-token (Zapier-style ?token=…): the secret rides in the URL.
+  //   • Header (e.g. Stitch's X-Goog-Api-Key): the secret rides in a request header.
+  const secretEnv = `${name.toUpperCase().replace(/[^A-Z0-9]+/g, "_")}_MCP_TOKEN`;
   const m = url.match(SECRET_PARAM_RE);
-  if (!m) {
+  let secretValue = "";
+  let placeholderUrl = url;
+  let headerName = ""; // empty → URL-token mode; set → header mode
+
+  if (m) {
+    // URL-token mode: replace the token in the persisted URL with ${SECRET_ENV}.
+    secretValue = m[2];
+    placeholderUrl = url.replace(secretValue, "${" + secretEnv + "}");
+  } else if (authHeader && apiKey) {
+    // Header mode: tolerate a trailing colon ("X-Goog-Api-Key:") from the form.
+    headerName = authHeader.replace(/:\s*$/, "").trim();
+    if (!HEADER_NAME_RE.test(headerName)) {
+      return Response.json({ error: "Invalid auth header name (e.g. X-Goog-Api-Key)" }, { status: 400 });
+    }
+    secretValue = apiKey;
+    // The URL stays clean; the secret is injected as a header at egress.
+  } else {
     return Response.json(
       {
         error:
-          "No token found in the URL. This version supports MCP servers whose URL embeds a token (e.g. Zapier's …?token=…).",
+          "Provide either an MCP URL with an embedded token (e.g. Zapier's …?token=…), or an Auth header + API key (e.g. X-Goog-Api-Key) for header-authenticated servers like Stitch.",
       },
       { status: 400 },
     );
   }
-  const tokenValue = m[2];
-  const secretEnv = `${name.toUpperCase().replace(/[^A-Z0-9]+/g, "_")}_MCP_TOKEN`;
-  const placeholderUrl = url.replace(tokenValue, "${" + secretEnv + "}");
 
   const script = await connectScript();
   if (!script) {
@@ -142,13 +163,13 @@ export async function POST(req: Request): Promise<Response> {
   const childEnv: NodeJS.ProcessEnv = {
     ...process.env,
     PATH: `${process.env.PATH || ""}:${path.dirname(process.execPath)}:/usr/local/bin`,
-    [secretEnv]: tokenValue,
+    [secretEnv]: secretValue,
   };
 
   try {
     const { stdout, stderr } = await execFileAsync(
       "bash",
-      [script, sandbox, name, placeholderUrl, secretEnv, host],
+      [script, sandbox, name, placeholderUrl, secretEnv, host, headerName],
       { env: childEnv, timeout: 120000 },
     );
     // The script prints only "[mcp-connect] …" status lines, no secrets.

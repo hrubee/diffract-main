@@ -52,7 +52,7 @@ const AUTH_PRESETS = ["Authorization: Bearer", "Authorization: Token", "x-api-ke
 
 // "Connect MCP" form — connect an MCP server (Zapier, Notion, …). Paste the
 // server URL; any embedded token is extracted and held host-side automatically.
-const BLANK_MCP = { name: "", url: "" };
+const BLANK_MCP = { name: "", url: "", authHeader: "", apiKey: "" };
 
 function Badge({ ok, label }: { ok: boolean; label: string }) {
   return (
@@ -342,12 +342,18 @@ export default function ToolsTab({ sandboxName }: { sandboxName: string }) {
     try {
       const name = mcpForm.name.trim();
       const url = mcpForm.url.trim();
+      const authHeader = mcpForm.authHeader.trim();
+      const apiKey = mcpForm.apiKey.trim();
       if (!name) throw new Error("Name is required (lowercase, a-z0-9-)");
       if (!/^https:\/\//.test(url)) throw new Error("Paste the MCP server URL (https://…)");
+      // Header-auth servers (e.g. Stitch) need both the header name and the key.
+      if ((authHeader && !apiKey) || (!authHeader && apiKey)) {
+        throw new Error("For a header-authenticated server, provide BOTH the auth header and the API key.");
+      }
       const r = await fetch("/api/mcp", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sandbox: sandboxName, name, url }),
+        body: JSON.stringify({ sandbox: sandboxName, name, url, authHeader, apiKey }),
       });
       const data = await r.json();
       if (!r.ok || !data.ok) throw new Error(data.error || "Connect failed");
@@ -499,12 +505,15 @@ export default function ToolsTab({ sandboxName }: { sandboxName: string }) {
           ) : addMode === "mcp" ? (
             <>
               <p className="text-nc-text-muted text-xs">
-                Connect an MCP server (Zapier, Notion, …). Paste the server URL — any token embedded
-                in it is extracted and held host-side automatically; the agent only ever sees a
-                placeholder. The server&apos;s tools then become available to the agent.
+                Connect an MCP server. Two styles, both secured host-side (the agent only sees a
+                placeholder):
+                <br />• <b>URL-token</b> (Zapier, …): paste the URL with its <code>?token=…</code> — leave the header fields blank.
+                <br />• <b>Header-auth</b> (e.g. Stitch): paste the plain URL, then set the auth header + API key below.
               </p>
-              <Field label="Name *" value={mcpForm.name} onChange={(v) => setMcpForm({ ...mcpForm, name: v })} placeholder="zapier" hint="lowercase, a-z0-9-" />
-              <Field label="MCP server URL *" value={mcpForm.url} onChange={(v) => setMcpForm({ ...mcpForm, url: v })} placeholder="https://mcp.zapier.com/api/v1/connect?token=…" hint="https URL (with its token); the token is secured host-side" />
+              <Field label="Name *" value={mcpForm.name} onChange={(v) => setMcpForm({ ...mcpForm, name: v })} placeholder="stitch" hint="lowercase, a-z0-9-" />
+              <Field label="MCP server URL *" value={mcpForm.url} onChange={(v) => setMcpForm({ ...mcpForm, url: v })} placeholder="https://stitch.googleapis.com/mcp" hint="https URL (with its token for URL-token servers, or plain for header-auth)" />
+              <Field label="Auth header (header-auth only)" value={mcpForm.authHeader} onChange={(v) => setMcpForm({ ...mcpForm, authHeader: v })} placeholder="X-Goog-Api-Key" hint="header name the server expects (leave blank for URL-token servers)" />
+              <Field label="API key (header-auth only)" value={mcpForm.apiKey} onChange={(v) => setMcpForm({ ...mcpForm, apiKey: v })} placeholder="your API key" hint="held host-side; the agent only sees a placeholder" />
               <div className="flex items-center gap-2 pt-1">
                 <button
                   disabled={adding || !mcpForm.name || !mcpForm.url}

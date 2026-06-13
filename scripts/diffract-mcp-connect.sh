@@ -32,6 +32,11 @@ NAME="${2:-}"
 URL="${3:-}"
 SECRET_ENV="${4:-}"
 HOSTPORT="${5:-}"
+# Optional 6th arg: a request-header NAME (e.g. X-Goog-Api-Key) for header-auth
+# MCP servers (Stitch, etc.). When set, the secret is injected via this header
+# instead of a URL token; the agent config gets headers:{<HEADER>: "${SECRET_ENV}"}
+# and the L7 proxy rewrites the placeholder to the real key at egress.
+HEADER="${6:-}"
 
 PROVIDER="${NAME}-mcp"
 RECORD_DIR="${DIFFRACT_MCP_DIR:-/var/lib/diffract/connected-mcp.d}"
@@ -89,6 +94,7 @@ URL=$(printf '%q' "$URL")
 SECRET_ENV=$(printf '%q' "$SECRET_ENV")
 HOST=$(printf '%q' "$HOSTPORT")
 PROVIDER=$(printf '%q' "$PROVIDER")
+HEADER=$(printf '%q' "$HEADER")
 EOF
 echo "[mcp-connect] recorded '$NAME' in $RECORD_DIR/${NAME}.conf (re-applied at next create)"
 
@@ -98,12 +104,40 @@ echo "[mcp-connect] recorded '$NAME' in $RECORD_DIR/${NAME}.conf (re-applied at 
 if command -v docker >/dev/null 2>&1; then
   cid="$(docker ps -q -f "label=openshell.ai/sandbox-name=${SANDBOX}" 2>/dev/null | head -1 || true)"
   if [ -n "$cid" ]; then
-    echo "[mcp-connect] adding '$NAME' to the running sandbox agent config (exec-immediate)"
-    # Run AS THE SANDBOX USER (HOME=/sandbox) so it writes the agent's config, not
-    # root's. `printf` feeds the prompts; add saves it disabled (add-time discovery
-    # sends the literal ${SECRET}), so flip it to enabled. Best-effort — the deploy's
-    # mcp-sync apply re-does this authoritatively at create for the chat daemon.
-    docker exec -u sandbox -e HOME=/sandbox "$cid" bash -lc "printf 'n\ny\n' | hermes mcp add $(printf '%q' "$NAME") --url $(printf '%q' "$URL") >/dev/null 2>&1; sed -i \"/^  ${NAME}:/,/enabled:/ s/enabled: false/enabled: true/\" /sandbox/.hermes/config.yaml 2>/dev/null || true" </dev/null 2>&1 || true
+    if [ -n "$HEADER" ]; then
+      # Header-auth: write mcp_servers.<name> = {url, headers:{<HEADER>:"${SECRET_ENV}"},
+      # enabled:true} directly (hermes mcp add has no header flags). The config
+      # loader interpolates ${SECRET_ENV} -> the OpenShell placeholder, which the
+      # L7 proxy rewrites to the real key at egress. Run as the sandbox user.
+      echo "[mcp-connect] adding header-auth '$NAME' (header: $HEADER) to the running sandbox agent config"
+      docker exec -u sandbox -e HOME=/sandbox \
+        -e MNAME="$NAME" -e MURL="$URL" -e MHEADER="$HEADER" -e MSECRET="$SECRET_ENV" "$cid" \
+        /opt/hermes/.venv/bin/python - <<'PY' >/dev/null 2>&1 || true
+import os
+from ruamel.yaml import YAML
+p = "/sandbox/.hermes/config.yaml"
+yaml = YAML()
+try:
+    with open(p) as f:
+        cfg = yaml.load(f) or {}
+except Exception:
+    cfg = {}
+cfg.setdefault("mcp_servers", {})[os.environ["MNAME"]] = {
+    "url": os.environ["MURL"],
+    "headers": {os.environ["MHEADER"]: "${" + os.environ["MSECRET"] + "}"},
+    "enabled": True,
+}
+with open(p, "w") as f:
+    yaml.dump(cfg, f)
+PY
+    else
+      echo "[mcp-connect] adding '$NAME' to the running sandbox agent config (exec-immediate)"
+      # Run AS THE SANDBOX USER (HOME=/sandbox) so it writes the agent's config, not
+      # root's. `printf` feeds the prompts; add saves it disabled (add-time discovery
+      # sends the literal ${SECRET}), so flip it to enabled. Best-effort — the deploy's
+      # mcp-sync apply re-does this authoritatively at create for the chat daemon.
+      docker exec -u sandbox -e HOME=/sandbox "$cid" bash -lc "printf 'n\ny\n' | hermes mcp add $(printf '%q' "$NAME") --url $(printf '%q' "$URL") >/dev/null 2>&1; sed -i \"/^  ${NAME}:/,/enabled:/ s/enabled: false/enabled: true/\" /sandbox/.hermes/config.yaml 2>/dev/null || true" </dev/null 2>&1 || true
+    fi
   fi
 fi
 

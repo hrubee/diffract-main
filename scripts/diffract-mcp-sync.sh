@@ -24,10 +24,12 @@ MCP_BINARIES=(/usr/bin/python3.13 /opt/hermes/.venv/bin/python3.13 /opt/hermes/.
 
 records() { ls "$RECORD_DIR"/*.conf 2>/dev/null; }
 
-# Source a record file in a subshell and echo "NAME|URL|SECRET_ENV|HOST|PROVIDER".
+# Source a record file in a subshell and echo
+# "NAME|URL|SECRET_ENV|HOST|PROVIDER|HEADER". HEADER is the optional request-header
+# name for header-auth MCP servers (empty for URL-token servers).
 record_fields() {
-  ( set -e; NAME=; URL=; SECRET_ENV=; HOST=; PROVIDER=; . "$1"
-    printf '%s|%s|%s|%s|%s\n' "$NAME" "$URL" "$SECRET_ENV" "$HOST" "$PROVIDER" )
+  ( set -e; NAME=; URL=; SECRET_ENV=; HOST=; PROVIDER=; HEADER=; . "$1"
+    printf '%s|%s|%s|%s|%s|%s\n' "$NAME" "$URL" "$SECRET_ENV" "$HOST" "$PROVIDER" "$HEADER" )
 }
 
 sandbox_cid() { "$DOCKER" ps -q -f "label=openshell.ai/sandbox-name=${SANDBOX}" 2>/dev/null | head -1; }
@@ -56,7 +58,7 @@ case "$MODE" in
     fi
     applied=0
     for f in $(records); do
-      IFS='|' read -r NAME URL SECRET_ENV HOST PROVIDER < <(record_fields "$f")
+      IFS='|' read -r NAME URL SECRET_ENV HOST PROVIDER HEADER < <(record_fields "$f")
       [ -z "$NAME" ] && continue
       # Egress (idempotent: same --rule-name updates instead of duplicating).
       binargs=(); for b in "${MCP_BINARIES[@]}"; do binargs+=(--binary "$b"); done
@@ -66,14 +68,43 @@ case "$MODE" in
         echo "[mcp-sync] WARN: egress failed for $NAME -> $HOST"; rc=1
       fi
       # Write mcp_servers into the agent config AS THE SANDBOX USER (HOME=/sandbox)
-      # so it lands in /sandbox/.hermes/config.yaml (the daemon's config), not
-      # root's. `hermes mcp add`'s discovery-connect sends the literal ${SECRET}
-      # (it does NOT interpolate the URL env var at add-time — only the daemon does
-      # at runtime), so it saves the server DISABLED. Flip it to enabled afterward
-      # (scoped to this server's block); the daemon interpolates + connects on load.
-      if "$DOCKER" exec -u sandbox -e HOME=/sandbox "$cid" bash -lc "printf 'n\ny\n' | hermes mcp add $(printf '%q' "$NAME") --url $(printf '%q' "$URL")" </dev/null >/dev/null 2>&1; then
-        "$DOCKER" exec -u sandbox -e HOME=/sandbox "$cid" \
-          bash -lc "sed -i \"/^  ${NAME}:/,/enabled:/ s/enabled: false/enabled: true/\" /sandbox/.hermes/config.yaml" </dev/null >/dev/null 2>&1
+      # so it lands in /sandbox/.hermes/config.yaml (the daemon's config), not root's.
+      ok=0
+      if [ -n "$HEADER" ]; then
+        # Header-auth server: write {url, headers:{<HEADER>:"${SECRET_ENV}"}, enabled:true}
+        # directly (hermes mcp add has no header flags). The loader interpolates
+        # ${SECRET_ENV} -> the OpenShell placeholder; the L7 proxy rewrites it at egress.
+        if "$DOCKER" exec -u sandbox -e HOME=/sandbox \
+            -e MNAME="$NAME" -e MURL="$URL" -e MHEADER="$HEADER" -e MSECRET="$SECRET_ENV" "$cid" \
+            /opt/hermes/.venv/bin/python - <<'PY' </dev/null >/dev/null 2>&1
+import os
+from ruamel.yaml import YAML
+p = "/sandbox/.hermes/config.yaml"
+yaml = YAML()
+try:
+    with open(p) as f:
+        cfg = yaml.load(f) or {}
+except Exception:
+    cfg = {}
+cfg.setdefault("mcp_servers", {})[os.environ["MNAME"]] = {
+    "url": os.environ["MURL"],
+    "headers": {os.environ["MHEADER"]: "${" + os.environ["MSECRET"] + "}"},
+    "enabled": True,
+}
+with open(p, "w") as f:
+    yaml.dump(cfg, f)
+PY
+        then ok=1; fi
+      else
+        # URL-token server: `hermes mcp add` saves it DISABLED (add-time discovery
+        # sends the literal ${SECRET}); flip it to enabled (scoped to this block).
+        if "$DOCKER" exec -u sandbox -e HOME=/sandbox "$cid" bash -lc "printf 'n\ny\n' | hermes mcp add $(printf '%q' "$NAME") --url $(printf '%q' "$URL")" </dev/null >/dev/null 2>&1; then
+          "$DOCKER" exec -u sandbox -e HOME=/sandbox "$cid" \
+            bash -lc "sed -i \"/^  ${NAME}:/,/enabled:/ s/enabled: false/enabled: true/\" /sandbox/.hermes/config.yaml" </dev/null >/dev/null 2>&1
+          ok=1
+        fi
+      fi
+      if [ "$ok" -eq 1 ]; then
         echo "[mcp-sync] configured + enabled mcp server: $NAME"
         applied=$((applied+1))
       else
@@ -103,18 +134,25 @@ case "$MODE" in
     printf '{'
     first=1
     for f in $(records); do
-      IFS='|' read -r NAME URL SECRET_ENV HOST PROVIDER < <(record_fields "$f")
+      IFS='|' read -r NAME URL SECRET_ENV HOST PROVIDER HEADER < <(record_fields "$f")
       [ -z "$NAME" ] && continue
       [ $first -eq 0 ] && printf ','; first=0
-      printf '%s:{"url":%s,"enabled":true}' "$(jq -nc --arg v "$NAME" '$v')" "$(jq -nc --arg v "$URL" '$v')"
+      if [ -n "$HEADER" ]; then
+        # Header-auth: emit {url, headers:{<HEADER>:"${SECRET_ENV}"}, enabled:true}.
+        printf '%s:{"url":%s,"headers":{%s:%s},"enabled":true}' \
+          "$(jq -nc --arg v "$NAME" '$v')" "$(jq -nc --arg v "$URL" '$v')" \
+          "$(jq -nc --arg v "$HEADER" '$v')" "$(jq -nc --arg v "\${${SECRET_ENV}}" '$v')"
+      else
+        printf '%s:{"url":%s,"enabled":true}' "$(jq -nc --arg v "$NAME" '$v')" "$(jq -nc --arg v "$URL" '$v')"
+      fi
     done
     printf '}\n'
     ;;
 
   list)
     for f in $(records); do
-      IFS='|' read -r NAME URL SECRET_ENV HOST PROVIDER < <(record_fields "$f")
-      echo "mcp: $NAME  host=$HOST  provider=$PROVIDER  secret_env=$SECRET_ENV"
+      IFS='|' read -r NAME URL SECRET_ENV HOST PROVIDER HEADER < <(record_fields "$f")
+      echo "mcp: $NAME  host=$HOST  provider=$PROVIDER  secret_env=$SECRET_ENV${HEADER:+  header=$HEADER}"
     done
     ;;
 
