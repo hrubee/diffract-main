@@ -145,30 +145,11 @@
   <main>
     <div class="signup-wrap">
       <div class="signup-card">
-        <!-- STATE 1 · SUBSCRIBE (pay first) -->
-        <div id="subscribeState">
+        <!-- STATE 1 · NAME + SUBSCRIBE (name-before-pay → auto-provisioned) -->
+        <form id="subscribeState" novalidate>
           <div class="eyebrow">Get Started</div>
           <h1>Start your Diffract workspace</h1>
-          <p class="lede">Your own isolated Diffract instance — a dedicated, kernel-isolated AI agent runtime on a private <b style="color:var(--satin-frost);font-weight:500">.diffraction.in</b> URL. Subscribe, then choose your workspace name.</p>
-
-          <div class="preview" style="margin:0 0 8px;"><span class="dot"></span><span>Diffract subscription — <b>₹2,000</b>/month, cancel anytime</span></div>
-
-          <div class="submit-row">
-            <button type="button" class="btn btn-primary" id="subscribeBtn">Subscribe — ₹2,000/mo →</button>
-          </div>
-          <div class="hint error" id="subError" style="text-align:center;margin-top:14px;"></div>
-
-          <p class="fineprint">
-            Secure checkout by Dodo Payments — you'll pick your workspace name right after paying.<br/>
-            Prefer a guided setup? <a href="https://calendly.com/diffraction-in/30min" target="_blank" rel="noopener">Schedule a meeting</a>.
-          </p>
-        </div>
-
-        <!-- STATE 2 · NAME WORKSPACE (after payment) -->
-        <form id="workspaceForm" class="hide" novalidate>
-          <div class="eyebrow">Payment received</div>
-          <h1>Name your workspace</h1>
-          <p class="lede">Your subscription is active. Choose your subdomain — this becomes your private Diffract URL.</p>
+          <p class="lede">Your own isolated Diffract instance — a dedicated, kernel-isolated AI agent runtime on a private <b style="color:var(--satin-frost);font-weight:500">.diffraction.in</b> URL. Pick your name, then subscribe — your workspace is provisioned automatically.</p>
 
           <div class="field">
             <label for="workspace">Workspace name</label>
@@ -183,10 +164,17 @@
             <div class="hint" id="emailHint">Where we'll send your login once it's live.</div>
           </div>
 
+          <div class="preview" style="margin:6px 0 8px;"><span class="dot"></span><span>Diffract subscription — <b>₹2,000</b>/month, cancel anytime</span></div>
+
           <div class="submit-row">
-            <button type="submit" class="btn btn-primary" id="claimBtn" disabled>Claim my workspace →</button>
+            <button type="submit" class="btn btn-primary" id="subscribeBtn" disabled>Subscribe — ₹2,000/mo →</button>
           </div>
-          <div class="hint error" id="formError" style="text-align:center;margin-top:14px;"></div>
+          <div class="hint error" id="subError" style="text-align:center;margin-top:14px;"></div>
+
+          <p class="fineprint">
+            Secure checkout by Dodo Payments — your workspace is provisioned automatically right after you pay.<br/>
+            Prefer a guided setup? <a href="https://calendly.com/diffraction-in/30min" target="_blank" rel="noopener">Schedule a meeting</a>.
+          </p>
         </form>
 
         <!-- STATE 3 · DONE -->
@@ -221,39 +209,18 @@
   })();
 
   /* ════════════════════════════════════════════════════════════════════
-     PAYMENT-FIRST FLOW
-       State 1  Subscribe                → POST /api/checkout.php → Dodo checkout
-       State 2  (return ?paid=1) Name it → POST /api/claim.php   → logged + tied
-       State 3  Confirmation
+     NAME-BEFORE-PAY FLOW (auto-provisioned)
+       State 1  Name + Subscribe → POST /api/checkout.php {workspace,email}
+                                  → Dodo checkout (workspace rides in metadata)
+       (Dodo subscription.active webhook → control plane provisions the VPS)
+       State 3  (return ?paid=1) Confirmation — "provisioning your workspace"
      ════════════════════════════════════════════════════════════════════ */
 
-  /* ── State 1: subscribe → Dodo hosted checkout ── */
-  (function(){
-    var btn = document.getElementById('subscribeBtn');
-    var err = document.getElementById('subError');
-    if (!btn) return;
-    btn.addEventListener('click', async function(){
-      err.textContent = '';
-      btn.disabled = true; btn.textContent = 'Redirecting to checkout…';
-      try {
-        var res = await fetch('/api/checkout.php', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}'
-        });
-        var data = await res.json().catch(function(){ return {}; });
-        if (!res.ok || !data.url) throw new Error(data.error || ('HTTP ' + res.status));
-        window.location.href = data.url;   // -> Dodo hosted checkout (₹2,000/mo)
-      } catch (e2) {
-        btn.disabled = false; btn.textContent = 'Subscribe — ₹2,000/mo →';
-        err.textContent = "Couldn't start checkout (" + (e2.message || e2) + "). Try again, or schedule a call below.";
-      }
-    });
-  })();
-
-  /* ── slug → subdomain preview + validation (mirrors the provisioner / checkout.php).
-     Reserved list MUST stay in sync with api/*.php + the control-plane provisioner. ── */
+  /* ── slug → subdomain preview + validation (mirrors checkout.php + the
+     control-plane provisioner). Reserved list MUST stay in sync. ── */
   var RESERVED = new Set(['app','www','ftp','api','admin','mail','root','ns','ns1','ns2','cdn',
     'static','assets','dashboard','status','blog','support','help','docs','console','portal',
-    'login','signup','sign-up','dev','staging','test','demo','mx','smtp','webmail','vpn','git','@']);
+    'login','signup','sign-up','dev','staging','test','demo','mx','smtp','webmail','vpn','git','cp','control','@']);
   function slugify(v){
     return (v||'').toLowerCase().trim()
       .replace(/[^a-z0-9-]+/g,'-').replace(/-+/g,'-').replace(/^-+|-+$/g,'');
@@ -267,71 +234,91 @@
   }
   function emailOk(v){ return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v); }
 
-  // Raw Dodo return params (status / payment / subscription id, etc.) — logged by
-  // claim.php so each reserved workspace can be tied back to its payment.
-  var DODO_REF = location.search.replace(/^\?/, '');
-
-  /* ── State 2: workspace naming — shown only after returning from Dodo (?paid=1) ── */
+  /* ── State 3: confirmation after returning from Dodo (?paid=1) ── */
   (function(){
     var q = new URLSearchParams(location.search);
     if (q.get('paid') !== '1') return;
-
     var sub = document.getElementById('subscribeState');
     if (sub) sub.classList.add('hide');
-    document.getElementById('workspaceForm').classList.remove('hide');
+    var ws = slugify(q.get('ws') || '');
+    if (ws) document.getElementById('successUrl').textContent = ws + '.diffraction.in';
+    document.getElementById('successState').classList.add('show');
+    // Best-effort audit record — the webhook is the source of truth for provisioning.
+    try {
+      fetch('/api/claim.php', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ workspace: ws, email: (q.get('email')||q.get('customer_email')||''), ref: location.search.replace(/^\?/,'') })
+      }).catch(function(){});
+    } catch(_){}
+  })();
 
+  /* ── State 1: name + subscribe → checkout (workspace carried in metadata) ── */
+  (function(){
+    var form = document.getElementById('subscribeState');
+    if (!form || new URLSearchParams(location.search).get('paid') === '1') return;
     var wsInput = document.getElementById('workspace');
     var emailInput = document.getElementById('email');
     var previewUrl = document.getElementById('previewUrl');
     var previewDot = document.getElementById('previewDot');
     var wsHint = document.getElementById('workspaceHint');
-    var emailHint = document.getElementById('emailHint');
-    var claimBtn = document.getElementById('claimBtn');
-    var formError = document.getElementById('formError');
+    var btn = document.getElementById('subscribeBtn');
+    var err = document.getElementById('subError');
 
-    // Pre-fill if the params carried a workspace / email through.
-    var presetWs = slugify(q.get('ws') || '');
-    if (presetWs) wsInput.value = presetWs;
-    var presetEmail = q.get('email') || q.get('customer_email') || '';
-    if (presetEmail && emailOk(presetEmail)) emailInput.value = presetEmail;
+    var availTimer = null, lastChecked = '', availOk = true;
 
+    function setBtn(){
+      var slug = slugify(wsInput.value);
+      btn.disabled = !(validateSlug(slug).ok && slug && emailOk(emailInput.value) && availOk);
+    }
     function refresh(){
       var slug = slugify(wsInput.value);
       var v = validateSlug(slug);
       previewUrl.innerHTML = '<b>' + (slug || 'your-workspace') + '</b>.diffraction.in';
-      var ok = v.ok && slug;
-      previewDot.className = 'dot' + (ok ? '' : ' bad');
-      wsInput.classList.toggle('invalid', !!wsInput.value && !ok);
+      var shapeOk = v.ok && !!slug;
+      previewDot.className = 'dot' + (shapeOk && availOk ? '' : ' bad');
+      wsInput.classList.toggle('invalid', !!wsInput.value && !shapeOk);
       wsHint.textContent = v.msg;
       wsHint.className = 'hint' + (v.msg ? ' error' : '');
-      var eOk = emailOk(emailInput.value);
-      emailInput.classList.toggle('invalid', !!emailInput.value && !eOk);
-      claimBtn.disabled = !(ok && eOk);
-      return { slug: slug, ok: ok && eOk };
+      emailInput.classList.toggle('invalid', !!emailInput.value && !emailOk(emailInput.value));
+      setBtn();
+      if (shapeOk && slug !== lastChecked) {
+        clearTimeout(availTimer);
+        availTimer = setTimeout(function(){ checkAvail(slug); }, 350);
+      }
     }
-    wsInput.addEventListener('input', refresh);
+    async function checkAvail(slug){
+      lastChecked = slug;
+      try {
+        var res = await fetch('/api/available.php?subdomain=' + encodeURIComponent(slug));
+        var data = await res.json().catch(function(){ return { available:true }; });
+        if (slugify(wsInput.value) !== slug) return;   // user kept typing — stale
+        availOk = data.available !== false;
+        if (!availOk) { wsHint.textContent = data.reason || 'That name is taken — pick another.'; wsHint.className = 'hint error'; previewDot.className = 'dot bad'; }
+        else if (validateSlug(slug).ok) { wsHint.textContent = 'Available'; wsHint.className = 'hint'; previewDot.className = 'dot'; }
+        setBtn();
+      } catch(_){ availOk = true; setBtn(); }   // fail open
+    }
+    wsInput.addEventListener('input', function(){ availOk = true; refresh(); });
     emailInput.addEventListener('input', refresh);
     refresh();
 
-    document.getElementById('workspaceForm').addEventListener('submit', async function(e){
+    form.addEventListener('submit', async function(e){
       e.preventDefault();
-      formError.textContent = '';
-      var state = refresh();
-      if (!state.ok) return;
-      claimBtn.disabled = true; claimBtn.textContent = 'Reserving…';
+      err.textContent = '';
+      var slug = slugify(wsInput.value);
+      if (!(validateSlug(slug).ok && emailOk(emailInput.value) && availOk)) { refresh(); return; }
+      btn.disabled = true; btn.textContent = 'Redirecting to checkout…';
       try {
-        var res = await fetch('/api/claim.php', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ workspace: state.slug, email: emailInput.value.trim(), ref: DODO_REF })
+        var res = await fetch('/api/checkout.php', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ workspace: slug, email: emailInput.value.trim() })
         });
         var data = await res.json().catch(function(){ return {}; });
-        if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
-        document.getElementById('successUrl').textContent = state.slug + '.diffraction.in';
-        document.getElementById('workspaceForm').classList.add('hide');
-        document.getElementById('successState').classList.add('show');
-      } catch (e3) {
-        claimBtn.disabled = false; claimBtn.textContent = 'Claim my workspace →';
-        formError.textContent = "Couldn't reserve that name (" + (e3.message || e3) + "). Try again.";
+        if (!res.ok || !data.url) throw new Error(data.error || ('HTTP ' + res.status));
+        window.location.href = data.url;   // -> Dodo hosted checkout (₹2,000/mo)
+      } catch(e2){
+        btn.disabled = false; btn.textContent = 'Subscribe — ₹2,000/mo →';
+        err.textContent = "Couldn't start checkout (" + (e2.message || e2) + "). Try again, or schedule a call below.";
       }
     });
   })();

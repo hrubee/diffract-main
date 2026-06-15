@@ -2,16 +2,14 @@
 /**
  * Diffract — post-payment workspace claim (Hostinger shared LiteSpeed / PHP).
  *
- * Payment-first flow: the customer pays on Dodo first, is redirected back to
- * signup.html?paid=1&<dodo-params>, then picks a workspace name. This endpoint
- * records {workspace, email, the raw Dodo return params, time, IP} as one JSON
- * line in a log file kept ONE LEVEL ABOVE public_html (not web-accessible), so
- * each paid signup can be provisioned by hand and reconciled against the Dodo
- * dashboard. No database needed.
- *
- * Provisioning is manual: read the log, match each line to a Dodo payment via
- * its dodo_ref, then create VPS → DNS-merge <workspace>.diffraction.in → setup.sh.
- * A line with no matching Dodo payment is simply not provisioned.
+ * AUDIT FALLBACK (provisioning is now automated by the control-plane webhook).
+ * Name-before-pay flow: the customer picks a workspace, pays on Dodo (the name
+ * rides in the Dodo metadata), and the control plane provisions automatically on
+ * the subscription.active webhook. On return to signup.html?paid=1 the page also
+ * POSTs here, best-effort, to append {workspace, email, raw Dodo return params,
+ * time, IP} as one JSON line ONE LEVEL ABOVE public_html (not web-accessible) —
+ * a human-readable reconciliation trail against the Dodo dashboard and the
+ * control-plane tenant registry. It does NOT itself provision anything.
  */
 
 header('Content-Type: application/json');

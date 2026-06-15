@@ -31,27 +31,56 @@ function fail($code, $obj) {
   exit;
 }
 
-function load_dodo_key() {
-  $env = getenv('DODO_PAYMENTS_API_KEY');
+// Read a KEY=value from the env or the .diffract-dodo.env file (one level above
+// public_html, then fallbacks). Used for both the Dodo key and the optional
+// control-plane base URL.
+function load_env_value($key) {
+  $env = getenv($key);
   if ($env) return trim($env);
-  // Preferred: outside public_html. Fallbacks: public_html root, then alongside.
   $candidates = [
     __DIR__ . '/../../.diffract-dodo.env',
     __DIR__ . '/../.diffract-dodo.env',
     __DIR__ . '/.diffract-dodo.env',
   ];
+  $prefix = $key . '=';
+  $plen = strlen($prefix);
   foreach ($candidates as $p) {
     if (is_readable($p)) {
       foreach (file($p, FILE_IGNORE_NEW_LINES) as $line) {
         $line = trim($line);
-        if (strncmp($line, 'DODO_PAYMENTS_API_KEY=', 22) === 0) {
-          $v = trim(substr($line, 22));
+        if (strncmp($line, $prefix, $plen) === 0) {
+          $v = trim(substr($line, $plen));
           if ($v !== '') return $v;
         }
       }
     }
   }
   return null;
+}
+
+function load_dodo_key() { return load_env_value('DODO_PAYMENTS_API_KEY'); }
+
+// Best-effort availability check against the control plane. FAIL-OPEN: if the
+// control plane is unset or unreachable, we DO NOT block the sale (a duplicate
+// is caught + flagged by the provisioner at webhook time). Returns false only on
+// a definitive "taken" answer.
+function workspace_taken($workspace) {
+  $base = load_env_value('CONTROL_PLANE_BASE');   // e.g. https://cp.diffraction.in
+  if (!$base || $workspace === '') return false;
+  $url = rtrim($base, '/') . '/api/available?subdomain=' . rawurlencode($workspace);
+  $out = false;
+  if (function_exists('curl_init')) {
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 6]);
+    $out = curl_exec($ch);
+    curl_close($ch);
+  } else {
+    $ctx = stream_context_create(['http' => ['method' => 'GET', 'timeout' => 6, 'ignore_errors' => true]]);
+    $out = @file_get_contents($url, false, $ctx);
+  }
+  if ($out === false) return false;             // unreachable -> fail open
+  $j = json_decode($out, true);
+  return is_array($j) && array_key_exists('available', $j) && $j['available'] === false;
 }
 
 function slugify($v) {
@@ -78,17 +107,21 @@ $raw  = file_get_contents('php://input');
 $data = json_decode($raw ?: '{}', true);
 if (!is_array($data)) fail(400, ['error' => 'invalid JSON body']);
 
-// Payment-first flow: the workspace + email are collected AFTER payment
-// (signup.html State 2 → api/claim.php). Dodo's hosted checkout collects the
-// customer's email itself, so both are OPTIONAL here. If a workspace IS passed
-// (e.g. a future pre-fill) it is validated and carried through; otherwise the
-// checkout is created for the product alone.
+// Name-before-pay flow (required for auto-provisioning): signup.html collects the
+// workspace + email BEFORE checkout and passes them here. They are carried into
+// the Dodo `metadata`, which the control-plane webhook reads to provision
+// <workspace>.diffraction.in automatically. Both are still tolerated-if-empty so
+// the smoke test (`-d '{}'`) keeps working; a paid event with no workspace is
+// flagged by the provisioner for manual fulfilment rather than lost.
 $workspace = slugify($data['workspace'] ?? '');
 $email     = trim((string)($data['email'] ?? ''));
 $name      = trim((string)($data['name'] ?? ''));
 
 if ($workspace !== '' && !valid_workspace($workspace)) {
   fail(400, ['error' => 'invalid or reserved workspace name']);
+}
+if ($workspace !== '' && workspace_taken($workspace)) {
+  fail(409, ['error' => 'that workspace name is already taken — pick another']);
 }
 if ($email !== '' && !valid_email($email)) {
   fail(400, ['error' => 'invalid email']);

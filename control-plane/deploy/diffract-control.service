@@ -1,0 +1,25 @@
+# systemd unit for the Diffract control plane.
+# Install: see control-plane/deploy/setup-control-plane.sh (it writes this with
+# the right paths). Manual install:
+#   sudo cp diffract-control.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now diffract-control
+
+[Unit]
+Description=Diffract control plane (Dodo webhook -> Hostinger provisioner)
+After=network-online.target caddy.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/diffract-control
+# Node 22 loads .env directly; keep the real secrets in /opt/diffract-control/.env (chmod 600).
+ExecStart=/usr/bin/env node --env-file=/opt/diffract-control/.env src/server.mjs
+Restart=always
+RestartSec=3
+# Persist the tenant registry + outbox across restarts.
+StateDirectory=diffract-control
+User=root
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

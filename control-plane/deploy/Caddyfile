@@ -1,0 +1,38 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Diffract control-plane ingress (runs on the CONTROL VPS).
+#
+#   cp.diffraction.in      -> the control service (Dodo webhook + APIs)  [managed cert]
+#   *.diffraction.in       -> per-tenant boxes, routes injected at runtime via the
+#                             Caddy admin API by the provisioner            [on-demand TLS]
+#
+# The control service gates on-demand cert issuance through /tls/ask, so Caddy
+# only mints certs for live tenants — never arbitrary hostnames.
+#
+# Replace the email + domain below to match your account, then:
+#   sudo cp deploy/Caddyfile /etc/caddy/Caddyfile && sudo systemctl reload caddy
+# ─────────────────────────────────────────────────────────────────────────────
+
+{
+	email admin@diffraction.in
+	# The admin API must be reachable on localhost (default). The provisioner uses
+	# it to add/remove per-tenant routes.
+	admin 127.0.0.1:2019
+	on_demand_tls {
+		ask http://127.0.0.1:8787/tls/ask
+	}
+}
+
+# Control service: Dodo webhook receiver + /api/available + /internal/*.
+cp.diffraction.in {
+	reverse_proxy 127.0.0.1:8787
+}
+
+# Tenant subdomains. The provisioner PREPENDS a host-specific reverse_proxy route
+# per active tenant; this block is the fallback for unknown/unprovisioned names
+# and, crucially, declares on-demand TLS for the whole wildcard.
+*.diffraction.in {
+	tls {
+		on_demand
+	}
+	respond "This Diffract workspace does not exist." 404
+}
