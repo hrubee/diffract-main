@@ -1,9 +1,0 @@
-diffract.tar.gz
-node_modules/
-.DS_Store
-*.tar.gz
-
-# Live Dodo Payments secret — NEVER commit. Only the .example template is tracked.
-.diffract-dodo.env
-*.env
-!*.env.example

@@ -111,7 +111,7 @@ export const config = {
   },
 };
 
-// Reserved subdomains — MUST mirror website/api/checkout.php + claim.php + signup.html.
+// Reserved subdomains — MUST mirror public/signup.html's RESERVED set.
 export const RESERVED_SUBDOMAINS = new Set([
   "app", "www", "ftp", "api", "admin", "mail", "root", "ns", "ns1", "ns2", "cdn",
   "static", "assets", "dashboard", "status", "blog", "support", "help", "docs",

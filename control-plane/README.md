@@ -116,7 +116,3 @@ curl -s -H "Authorization: Bearer $ADMIN_API_TOKEN" https://cp.diffraction.in/in
 - **The injected inference key is a shared secret that lives on every client box**
   (operator's accepted tradeoff for out-of-the-box chat). Rotate it by updating
   `INJECT_INFERENCE_KEY` and re-provisioning.
-
-> The `deploy/` directory is the **legacy self-hosted-on-a-VPS** variant (systemd + a
-> central Caddy ingress). It predates the Railway + per-box-TLS model above and is no
-> longer the supported path — use Railway.
