@@ -51,6 +51,55 @@ export async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> 
   return res.json();
 }
 
+// ── MCP servers (HOST control-plane API) ──────────────────────────────────
+// Connecting an MCP server requires opening host-side OpenShell egress + a
+// host-side record re-applied at create — only the Diffract control plane
+// (diffractui) can do this; the in-sandbox dashboard cannot. In the Diffract
+// product both are on ONE origin via Caddy (this app under a prefix like /agent,
+// diffractui at the root), so these call diffractui's /api/mcp at the ORIGIN ROOT
+// (NOT under HERMES_BASE_PATH) with the admin-session cookie (credentials:include).
+export interface HostMcpServer {
+  name: string;
+  host: string;
+}
+
+const HOST_MCP_API = "/api/mcp";
+
+async function hostMcpFetch(
+  input: string,
+  init?: RequestInit,
+): Promise<{ ok?: boolean; error?: string; servers?: HostMcpServer[] }> {
+  const res = await fetch(input, { credentials: "include", ...init });
+  let body: { ok?: boolean; error?: string; servers?: HostMcpServer[] } | null = null;
+  try {
+    body = await res.json();
+  } catch {
+    /* non-JSON response */
+  }
+  if (!res.ok || body?.ok === false) {
+    if (res.status === 401) {
+      throw new Error("Sign in to the Diffract admin dashboard to manage MCP servers.");
+    }
+    throw new Error(body?.error || `Request failed (${res.status})`);
+  }
+  return body ?? {};
+}
+
+export const mcpHost = {
+  list: async (): Promise<HostMcpServer[]> => {
+    const body = await hostMcpFetch(HOST_MCP_API);
+    return body.servers ?? [];
+  },
+  add: (input: { name: string; url: string; authHeader?: string; apiKey?: string }) =>
+    hostMcpFetch(HOST_MCP_API, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(input),
+    }),
+  remove: (name: string) =>
+    hostMcpFetch(`${HOST_MCP_API}?name=${encodeURIComponent(name)}`, { method: "DELETE" }),
+};
+
 /** Encode a plugin registry key for URL paths (preserves `/` segment separators). */
 function pluginPath(name: string): string {
   return name.split("/").map(encodeURIComponent).join("/");

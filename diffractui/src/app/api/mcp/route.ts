@@ -24,6 +24,31 @@ const execFileAsync = promisify(execFile);
 const SANDBOX_NAME_RE = /^[a-zA-Z0-9_-]+$/;
 const NAME_RE = /^[a-z][a-z0-9-]{0,40}$/;
 const MCP_DIR = process.env.DIFFRACT_MCP_DIR || "/var/lib/diffract/connected-mcp.d";
+const NEMOCLAW_HOME = process.env.HOME || "/root";
+
+// Resolve the default sandbox so callers that don't know the sandbox name (e.g.
+// the in-sandbox Hermes dashboard's MCP panel, which reaches this host API
+// same-origin via Caddy) can omit it. Reads ~/.nemoclaw/sandboxes.json.
+async function defaultSandbox(): Promise<string> {
+  try {
+    const raw = await fs.readFile(
+      path.join(NEMOCLAW_HOME, ".nemoclaw", "sandboxes.json"),
+      "utf8",
+    );
+    const s = String(JSON.parse(raw)?.defaultSandbox || "");
+    return SANDBOX_NAME_RE.test(s) ? s : "";
+  } catch {
+    return "";
+  }
+}
+
+function syncScript(): Promise<string | null> {
+  return firstExisting([
+    process.env.DIFFRACT_MCP_SYNC_SCRIPT,
+    "/usr/local/bin/diffract-mcp-sync.sh",
+    path.resolve(process.cwd(), "..", "scripts/diffract-mcp-sync.sh"),
+  ]);
+}
 
 // Detect the secret query param in an MCP URL (Zapier `?token=…`, etc.).
 const SECRET_PARAM_RE = /[?&]([a-z0-9_]*(?:token|key|secret|auth|apikey)[a-z0-9_]*)=([^&#\s]+)/i;
@@ -95,14 +120,19 @@ export async function POST(req: Request): Promise<Response> {
   } catch {
     return Response.json({ error: "Invalid JSON body" }, { status: 400 });
   }
-  const sandbox = body.sandbox || "";
+  let sandbox = (body.sandbox || "").trim();
   const name = (body.name || "").trim();
   const url = (body.url || "").trim();
   const authHeader = (body.authHeader || "").trim();
   const apiKey = (body.apiKey || "").trim();
 
+  // Fall back to the default sandbox when the caller didn't pass one.
+  if (!sandbox) sandbox = await defaultSandbox();
   if (!SANDBOX_NAME_RE.test(sandbox)) {
-    return Response.json({ error: "Invalid sandbox name" }, { status: 400 });
+    return Response.json(
+      { error: "No sandbox specified and no default sandbox found — deploy an agent first" },
+      { status: 400 },
+    );
   }
   if (!NAME_RE.test(name)) {
     return Response.json({ error: "Invalid name (lowercase, a-z0-9-)" }, { status: 400 });
@@ -179,6 +209,54 @@ export async function POST(req: Request): Promise<Response> {
   } catch (e: unknown) {
     const err = e as { stdout?: string; stderr?: string; message?: string };
     const out = `${err?.stdout || ""}\n${err?.stderr || err?.message || "connect failed"}`.trim();
+    return Response.json({ ok: false, error: out }, { status: 500 });
+  }
+}
+
+// ── DELETE: disconnect a connected MCP server ─────────────────────────────
+// Removes the host record (so it isn't re-applied at the next create), drops it
+// from the running agent config, and revokes its egress. Name via ?name=…;
+// sandbox via ?sandbox=… (defaults to the default sandbox).
+export async function DELETE(req: Request): Promise<Response> {
+  const unauth = await requireSession();
+  if (unauth) return unauth;
+
+  const qs = new URL(req.url).searchParams;
+  const name = (qs.get("name") || "").trim();
+  let sandbox = (qs.get("sandbox") || "").trim();
+
+  if (!NAME_RE.test(name)) {
+    return Response.json({ error: "Invalid name (lowercase, a-z0-9-)" }, { status: 400 });
+  }
+  if (!sandbox) sandbox = await defaultSandbox();
+  if (!SANDBOX_NAME_RE.test(sandbox)) {
+    return Response.json(
+      { error: "No sandbox specified and no default sandbox found" },
+      { status: 400 },
+    );
+  }
+
+  const script = await syncScript();
+  if (!script) {
+    return Response.json({ error: "MCP sync script not found on host" }, { status: 500 });
+  }
+
+  try {
+    const { stdout, stderr } = await execFileAsync(
+      "bash",
+      [script, "remove", name, sandbox],
+      {
+        env: {
+          ...process.env,
+          PATH: `${process.env.PATH || ""}:${path.dirname(process.execPath)}:/usr/local/bin`,
+        },
+        timeout: 120000,
+      },
+    );
+    return Response.json({ ok: true, output: `${stdout}\n${stderr}`.trim() });
+  } catch (e: unknown) {
+    const err = e as { stdout?: string; stderr?: string; message?: string };
+    const out = `${err?.stdout || ""}\n${err?.stderr || err?.message || "remove failed"}`.trim();
     return Response.json({ ok: false, error: out }, { status: 500 });
   }
 }

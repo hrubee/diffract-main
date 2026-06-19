@@ -2,8 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { ExternalLink, RefreshCw, Trash2, Eye, EyeOff } from "lucide-react";
 import type { Translations } from "@/i18n/types";
 import { Link } from "react-router-dom";
-import { api } from "@/lib/api";
-import type { HubAgentPluginRow, PluginsHubResponse } from "@/lib/api";
+import { api, mcpHost } from "@/lib/api";
+import type { HubAgentPluginRow, PluginsHubResponse, HostMcpServer } from "@/lib/api";
 import { Button } from "@nous-research/ui/ui/components/button";
 import { Badge } from "@nous-research/ui/ui/components/badge";
 import { Select, SelectOption } from "@nous-research/ui/ui/components/select";
@@ -288,6 +288,8 @@ export default function PluginsPage() {
             </p>
           </CardContent>
         </Card>
+
+        <McpServersCard showToast={showToast} />
 
         <div className="flex flex-col gap-3">
 
@@ -575,6 +577,226 @@ function PluginRowCard(props: PluginRowCardProps) {
         destructive
         confirmLabel={t.common.delete}
       />
+    </Card>
+  );
+}
+
+// ── MCP Servers ───────────────────────────────────────────────────────────
+// Connect / manage remote MCP servers (Zapier, Stitch, …). This drives the HOST
+// Diffract control plane (diffractui /api/mcp) — see mcpHost in lib/api — because
+// opening the OpenShell egress an MCP needs is a host-side action the in-sandbox
+// dashboard cannot perform. Copy strings are intentionally inline (operator infra,
+// not part of the translated product surface) to avoid shipping half-localised UI.
+function McpServersCard({
+  showToast,
+}: {
+  showToast: (msg: string, variant: "success" | "error") => void;
+}) {
+  const [servers, setServers] = useState<HostMcpServer[] | null>(null);
+  const [loadErr, setLoadErr] = useState<string | null>(null);
+  const [name, setName] = useState("");
+  const [url, setUrl] = useState("");
+  const [authHeader, setAuthHeader] = useState("");
+  const [apiKey, setApiKey] = useState("");
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [removing, setRemoving] = useState<string | null>(null);
+
+  const load = useCallback(() => {
+    return mcpHost
+      .list()
+      .then((s) => {
+        setServers(s);
+        setLoadErr(null);
+      })
+      .catch((e) => {
+        setServers([]);
+        setLoadErr(e instanceof Error ? e.message : "Failed to load MCP servers");
+      });
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  // Suggest a short name from the URL host when the user hasn't typed one.
+  const onUrlChange = (v: string) => {
+    setUrl(v);
+    if (!name.trim()) {
+      try {
+        const slug = new URL(v).hostname
+          .replace(/^mcp\./, "")
+          .split(".")[0]
+          .toLowerCase()
+          .replace(/[^a-z0-9-]/g, "");
+        if (slug) setName(slug);
+      } catch {
+        /* not a URL yet */
+      }
+    }
+  };
+
+  const onAdd = async () => {
+    if (!url.trim()) return showToast("Enter the MCP server URL", "error");
+    if (!name.trim()) return showToast("Enter a short name (a-z, 0-9, -)", "error");
+    setBusy(true);
+    try {
+      await mcpHost.add({
+        name: name.trim(),
+        url: url.trim(),
+        authHeader: authHeader.trim() || undefined,
+        apiKey: apiKey.trim() || undefined,
+      });
+      showToast(`Connected "${name.trim()}" — redeploy the agent to use it in chat`, "success");
+      setName("");
+      setUrl("");
+      setAuthHeader("");
+      setApiKey("");
+      setShowAdvanced(false);
+      await load();
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Connect failed", "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onRemove = async (n: string) => {
+    setRemoving(n);
+    try {
+      await mcpHost.remove(n);
+      showToast(`Removed "${n}"`, "success");
+      await load();
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Remove failed", "error");
+    } finally {
+      setRemoving(null);
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>MCP Servers</CardTitle>
+        <p className="text-xs tracking-[0.08em] text-text-tertiary">
+          Connect a remote MCP server (e.g. Zapier, Stitch) so the agent can use its tools.
+          Paste the full server URL; for header-authenticated servers add the auth header + key.
+        </p>
+      </CardHeader>
+
+      <CardContent className="flex flex-col gap-4">
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="mcp-url">Server URL</Label>
+          <Input
+            id="mcp-url"
+            className="font-mono-ui"
+            spellCheck={false}
+            placeholder="https://mcp.zapier.com/api/v1/connect?token=…"
+            value={url}
+            onChange={(e) => onUrlChange(e.target.value)}
+          />
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="mcp-name">Name</Label>
+          <Input
+            id="mcp-name"
+            className="font-mono-ui lowercase"
+            spellCheck={false}
+            placeholder="zapier"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+        </div>
+
+        <button
+          type="button"
+          className="w-fit text-xs underline text-text-tertiary hover:text-text-secondary"
+          onClick={() => setShowAdvanced((v) => !v)}
+        >
+          {showAdvanced ? "Hide header authentication" : "Header authentication (e.g. Stitch X-Goog-Api-Key)"}
+        </button>
+
+        {showAdvanced ? (
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="mcp-hdr">Auth header</Label>
+              <Input
+                id="mcp-hdr"
+                className="font-mono-ui"
+                spellCheck={false}
+                placeholder="X-Goog-Api-Key"
+                value={authHeader}
+                onChange={(e) => setAuthHeader(e.target.value)}
+              />
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="mcp-key">API key</Label>
+              <Input
+                id="mcp-key"
+                type="password"
+                className="font-mono-ui"
+                spellCheck={false}
+                placeholder="key value"
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+              />
+            </div>
+          </div>
+        ) : null}
+
+        <Button
+          className="w-fit uppercase"
+          size="sm"
+          disabled={busy}
+          onClick={() => void onAdd()}
+          prefix={busy ? <Spinner /> : undefined}
+        >
+          Connect
+        </Button>
+
+        <div className="flex flex-col gap-2">
+          {servers === null ? (
+            <div className="flex items-center gap-2 py-2 text-xs text-text-tertiary">
+              <Spinner />
+              <span>Loading…</span>
+            </div>
+          ) : loadErr ? (
+            <p className="text-xs text-text-tertiary">{loadErr}</p>
+          ) : servers.length === 0 ? (
+            <p className="text-xs text-text-tertiary">No MCP servers connected yet.</p>
+          ) : (
+            <ul className="flex flex-col gap-2">
+              {servers.map((s) => (
+                <li
+                  key={s.name}
+                  className="flex items-center justify-between gap-3 rounded border border-current/15 px-3 py-2"
+                >
+                  <span className="flex min-w-0 flex-col">
+                    <span className="truncate font-mono-ui text-sm">{s.name}</span>
+                    <span className="truncate text-xs text-text-tertiary">{s.host}</span>
+                  </span>
+                  <Button
+                    destructive
+                    ghost
+                    size="sm"
+                    disabled={removing === s.name}
+                    onClick={() => void onRemove(s.name)}
+                    aria-label={`Remove ${s.name}`}
+                  >
+                    {removing === s.name ? <Spinner /> : <Trash2 className="h-3.5 w-3.5" />}
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        <p className="text-xs tracking-[0.06em] text-text-tertiary">
+          After connecting, redeploy the agent (Diffract dashboard → Deploy) so the chat session
+          picks up the new tools.
+        </p>
+      </CardContent>
     </Card>
   );
 }
