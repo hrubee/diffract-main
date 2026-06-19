@@ -126,5 +126,18 @@ PY
   fi
 fi
 
+# 5. Reload the running gateway so the CHAT agent picks up the new MCP server
+#    immediately. The gateway caches its config + egress at start, so without a
+#    reload a freshly-connected server keeps failing ("initial connection failed")
+#    until the next redeploy. `nemoclaw <sandbox> recover` reloads it in place.
+#    Best-effort — the server is already recorded, so a redeploy still works if
+#    this fails. (The host record is also re-applied at every create.)
+if command -v nemoclaw >/dev/null 2>&1; then
+  if nemoclaw "$SANDBOX" recover >/dev/null 2>&1; then
+    echo "[mcp-connect] reloaded gateway — '$NAME' is usable in chat now (start a fresh chat)"
+  else
+    echo "[mcp-connect] NOTE: gateway reload failed — redeploy the sandbox to use '$NAME' in chat"
+  fi
+fi
+
 echo "[mcp-connect] done — '$NAME' is wired to sandbox '$SANDBOX'."
-echo "[mcp-connect] Recreate the sandbox (deploy) to use it in chat."
