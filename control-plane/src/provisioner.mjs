@@ -4,12 +4,12 @@
 //   create post-install script (install.sh + tenant env)
 //     -> purchase a Hostinger VPS (charges YOUR billing) referencing that script
 //     -> poll until the VM is running + has an IP
-//     -> point <sub>.diffraction.in at vpsIp:80 via the ingress
-//     -> health-check the box through the ingress
+//     -> publish an A record <sub>.diffraction.in -> vpsIp (DNS adapter)
+//     -> health-check the box directly (it terminates its own HTTPS)
 //     -> status=active, email the client their URL
 //
 // Every step updates the tenant row so a failure is visible + retryable, never a
-// silent half-provision. On cancel/refund we remove the route and suspend (VPS
+// silent half-provision. On cancel/refund we drop the DNS record and suspend (VPS
 // teardown is left manual on purpose — destroying a paid box should be a human
 // decision, see deprovision()).
 // ─────────────────────────────────────────────────────────────────────────────
@@ -28,13 +28,13 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const randomPassword = () => crypto.randomBytes(18).toString("base64url");
 
 export class Provisioner {
-  #cfg; #store; #hostinger; #caddy; #email; #log;
+  #cfg; #store; #hostinger; #dns; #email; #log;
 
-  constructor({ config, store, hostinger, caddy, email, logger = console }) {
+  constructor({ config, store, hostinger, dns, email, logger = console }) {
     this.#cfg = config;
     this.#store = store;
     this.#hostinger = hostinger;
-    this.#caddy = caddy;
+    this.#dns = dns;
     this.#email = email;
     this.#log = logger;
   }
@@ -73,7 +73,7 @@ export class Provisioner {
       const content = buildPostInstallScript({
         subdomain,
         adminPassword,
-        ingressIp: this.#cfg.install.ingressIp,
+        domain: this.#cfg.controlDomain,
         install: this.#cfg.install,
         inject: this.#cfg.inject,
       });
@@ -110,11 +110,13 @@ export class Provisioner {
       await this.#store.patch(subdomain, { vpsIp });
       this.#log.log(`[provision] ${subdomain}: VPS ${vpsId} running at ${vpsIp}`);
 
-      // 4. Point the subdomain at the box.
-      await this.#caddy.upsertTenantRoute(subdomain, this.#cfg.controlDomain, vpsIp);
-      this.#log.log(`[provision] ${subdomain}: ingress route -> ${vpsIp}:80`);
+      // 4. Publish DNS: <sub>.diffraction.in -> the box. The box's own Caddy then
+      //    gets a Let's Encrypt cert for this hostname (it may retry until DNS
+      //    propagates — both happen concurrently with the slow base-image build).
+      await this.#dns.pointSubdomain(subdomain, vpsIp);
+      this.#log.log(`[provision] ${subdomain}: DNS A ${subdomain}.${this.#cfg.controlDomain} -> ${vpsIp}`);
 
-      // 5. Health-check through the ingress (install.sh + base-image build is slow).
+      // 5. Health-check the box directly (install.sh + base-image build is slow).
       const url = `https://${subdomain}.${this.#cfg.controlDomain}`;
       await this.#waitForHealthy(url, subdomain);
 
@@ -163,15 +165,15 @@ export class Provisioner {
     throw new Error(`health-check timed out for ${subdomain} (${url})`);
   }
 
-  /** Cancel/refund/expire: drop the route + suspend. VPS teardown stays manual. */
+  /** Cancel/refund/expire: drop the DNS record + suspend. VPS teardown stays manual. */
   async deprovision(subscriptionId) {
     const tenant = await this.#store.findBySubscription(subscriptionId);
     if (!tenant) {
       this.#log.log(`[deprovision] no tenant for subscription ${subscriptionId}`);
       return null;
     }
-    try { await this.#caddy.removeTenantRoute(tenant.subdomain); } catch (e) {
-      this.#log.error(`[deprovision] route removal failed: ${e.message}`);
+    try { await this.#dns.unpointSubdomain(tenant.subdomain); } catch (e) {
+      this.#log.error(`[deprovision] DNS record removal failed: ${e.message}`);
     }
     const next = await this.#store.patch(tenant.subdomain, { status: "suspended" });
     this.#log.log(`[deprovision] ${tenant.subdomain}: suspended (VPS ${tenant.vpsId} left for manual teardown)`);

@@ -8,6 +8,8 @@
 // fulfil.
 // ─────────────────────────────────────────────────────────────────────────────
 
+import path from "node:path";
+
 function req(name) {
   const v = process.env[name];
   if (v === undefined || v === "") {
@@ -35,18 +37,28 @@ function int(name, { required = false, fallback = 0 } = {}) {
   return n;
 }
 
+const CONTROL_DOMAIN = opt("CONTROL_DOMAIN", "diffraction.in");
+const CONTROL_HOST = opt("CONTROL_HOST", `cp.${CONTROL_DOMAIN}`);
+
 export const config = {
   port: int("PORT", { fallback: 8787 }),
-  controlDomain: opt("CONTROL_DOMAIN", "diffraction.in"),
-  // Public host the control plane itself answers on (Dodo posts webhooks here).
-  // Covered by the *.diffraction.in wildcard, so no extra DNS record is needed.
-  controlHost: opt("CONTROL_HOST", `cp.${opt("CONTROL_DOMAIN", "diffraction.in")}`),
+  // Bind 0.0.0.0 on Railway (the service is public-facing now — it serves the
+  // signup page + receives Dodo webhooks directly, no Caddy in front).
+  bindHost: opt("BIND_HOST", "0.0.0.0"),
+  controlDomain: CONTROL_DOMAIN,
+  controlHost: CONTROL_HOST,
+  // Where the signup page is publicly served (Dodo return_url + welcome email link).
+  publicBaseUrl: opt("PUBLIC_BASE_URL", `https://${CONTROL_HOST}`),
+  // Static site root (the signup/checkout page). Defaults to ../public.
+  webRoot: opt("WEB_ROOT", path.resolve(import.meta.dirname, "..", "public")),
   tenantStore: opt("TENANT_STORE", "./data/tenants.json"),
   adminApiToken: req("ADMIN_API_TOKEN"),
 
   dodo: {
     webhookSecret: req("DODO_WEBHOOK_SECRET"),
     apiKey: opt("DODO_API_KEY"),
+    // The subscription product the signup page sells (Diffract, ₹2,000/mo LIVE).
+    productId: opt("DODO_PRODUCT_ID"),
     base: opt("DODO_BASE", "https://live.dodopayments.com"),
   },
 
@@ -62,7 +74,6 @@ export const config = {
   },
 
   install: {
-    ingressIp: req("INGRESS_PUBLIC_IP"),
     installUrl: opt("DIFFRACT_INSTALL_URL",
       "https://raw.githubusercontent.com/hrubee/diffract-main/main/install.sh"),
     repo: opt("DIFFRACT_REPO", "https://github.com/hrubee/diffract-main"),
@@ -76,9 +87,21 @@ export const config = {
     model: opt("INJECT_MODEL", ""),
   },
 
-  caddy: {
-    admin: opt("CADDY_ADMIN", "http://127.0.0.1:2019"),
-    server: opt("CADDY_SERVER", "srv0"),
+  // DNS — how <client>.diffraction.in is pointed at each provisioned box.
+  // Default "hostinger" reuses the VPS API token (domain + VPSs in one account).
+  dns: {
+    provider: opt("DNS_PROVIDER", "hostinger"),
+    domain: CONTROL_DOMAIN,
+    ttl: int("DNS_TTL", { fallback: 300 }),
+    hostinger: {
+      token: opt("HOSTINGER_DNS_TOKEN", opt("HOSTINGER_API_TOKEN")),
+      base: opt("HOSTINGER_API_BASE", "https://developers.hostinger.com"),
+    },
+    cloudflare: {
+      token: opt("CLOUDFLARE_API_TOKEN"),
+      zoneId: opt("CLOUDFLARE_ZONE_ID"),
+      base: opt("CLOUDFLARE_API_BASE", "https://api.cloudflare.com/client/v4"),
+    },
   },
 
   email: {

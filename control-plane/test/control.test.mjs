@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import { verifyWebhook, parseEvent } from "../src/dodo.mjs";
 import { buildPostInstallScript } from "../src/postinstall.mjs";
+import { createDns, HostingerDns, CloudflareDns, DnsError } from "../src/dns.mjs";
 
 // Helper: sign a body the way Dodo (Standard Webhooks) does.
 function sign({ id, ts, body, secret }) {
@@ -76,15 +77,72 @@ test("post-install script is valid-shape bash, under 48KB, with injected values"
   const script = buildPostInstallScript({
     subdomain: "acme",
     adminPassword: "p@ss'word",   // includes a quote to test escaping
-    ingressIp: "203.0.113.7",
+    domain: "diffraction.in",
     install: { installUrl: "https://x/install.sh", repo: "https://github.com/a/b", branch: "main", githubToken: "" },
     inject: { provider: "nvidia", key: "nv-secret-key", model: "nvidia/nemotron-3-super-120b-a12b" },
   });
   assert.ok(script.startsWith("#!/usr/bin/env bash"));
   assert.ok(Buffer.byteLength(script, "utf8") < 48 * 1024);
   assert.match(script, /NVIDIA_API_KEY=nv-secret-key/);
-  assert.match(script, /203\.0\.113\.7/);
-  assert.match(script, /ufw allow from "\$INGRESS_IP" to any port 80/);
+  // box runs its OWN HTTPS at its real hostname (no central ingress)
+  assert.match(script, /export DIFFRACT_DOMAIN='acme\.diffraction\.in'/);
+  assert.match(script, /ufw allow 80\/tcp/);
+  assert.match(script, /ufw allow 443\/tcp/);
   // the admin password's single quote must be safely escaped
   assert.match(script, /p@ss'\\''word/);
+});
+
+// ── DNS adapter ────────────────────────────────────────────────────────────────
+// A fetch stub that records the last request and returns an ok JSON response.
+function stubFetch(responseBody = {}) {
+  const calls = [];
+  const impl = async (url, opts = {}) => {
+    calls.push({ url, method: opts.method, body: opts.body ? JSON.parse(opts.body) : undefined, headers: opts.headers });
+    return { ok: true, status: 200, text: async () => JSON.stringify(responseBody) };
+  };
+  return { impl, calls };
+}
+
+test("Hostinger DNS upsert PUTs an A record for the subdomain to the zone", async () => {
+  const { impl, calls } = stubFetch({ ok: true });
+  const dns = new HostingerDns({ token: "ht", domain: "diffraction.in", ttl: 300 }, impl);
+  await dns.pointSubdomain("acme", "203.0.113.9");
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].method, "PUT");
+  assert.match(calls[0].url, /\/api\/dns\/v1\/zones\/diffraction\.in$/);
+  assert.equal(calls[0].headers.Authorization, "Bearer ht");
+  assert.equal(calls[0].body.overwrite, true);
+  assert.deepEqual(calls[0].body.zone[0], { name: "acme", type: "A", ttl: 300, records: [{ content: "203.0.113.9" }] });
+});
+
+test("Hostinger DNS unpoint DELETEs by name+type filter", async () => {
+  const { impl, calls } = stubFetch();
+  const dns = new HostingerDns({ token: "ht", domain: "diffraction.in" }, impl);
+  await dns.unpointSubdomain("acme");
+  assert.equal(calls[0].method, "DELETE");
+  assert.deepEqual(calls[0].body, { filters: [{ name: "acme", type: "A" }] });
+});
+
+test("Cloudflare DNS creates an unproxied A record when none exists", async () => {
+  // first call (GET lookup) returns empty result -> create path (POST)
+  const calls = [];
+  const impl = async (url, opts = {}) => {
+    calls.push({ url, method: opts.method, body: opts.body ? JSON.parse(opts.body) : undefined });
+    const isLookup = (opts.method ?? "GET") === "GET";
+    return { ok: true, status: 200, text: async () => JSON.stringify(isLookup ? { result: [] } : { result: { id: "new" } }) };
+  };
+  const dns = new CloudflareDns({ token: "cf", zoneId: "zone1", domain: "diffraction.in", ttl: 300 }, impl);
+  await dns.pointSubdomain("acme", "203.0.113.9");
+  assert.equal(calls.length, 2);                 // lookup + create
+  assert.equal(calls[1].method, "POST");
+  assert.equal(calls[1].body.proxied, false);    // TLS must terminate on the box
+  assert.equal(calls[1].body.name, "acme.diffraction.in");
+  assert.equal(calls[1].body.content, "203.0.113.9");
+});
+
+test("createDns fails fast on unknown provider and missing creds", () => {
+  assert.throws(() => createDns({ provider: "route53", domain: "x", ttl: 300, hostinger: {}, cloudflare: {} }), DnsError);
+  assert.throws(() => createDns({ provider: "cloudflare", domain: "x", ttl: 300, hostinger: {}, cloudflare: {} }), DnsError);
+  // hostinger with a token is fine
+  assert.ok(createDns({ provider: "hostinger", domain: "x", ttl: 300, hostinger: { token: "t" }, cloudflare: {} }));
 });

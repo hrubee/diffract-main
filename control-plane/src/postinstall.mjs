@@ -3,16 +3,19 @@
 //
 // Hostinger runs the returned script as ROOT on the freshly-installed client VPS
 // (output -> /post_install.log). It:
-//   1. exports the install env (admin password, repo/branch, optional PAT),
-//   2. curls + runs install.sh in --vps mode (no public domain — the central
-//      ingress terminates TLS for <sub>.diffraction.in and reverse-proxies in),
-//   3. locks the public surface (port 80, where the box's own Caddy does the
-//      /agent + /v1 routing) so ONLY the ingress IP can reach it,
+//   1. exports the install env, INCLUDING DIFFRACT_DOMAIN=<sub>.diffraction.in so
+//      install.sh runs setup.sh WITH a domain — the box's own Caddy then gets a
+//      Let's Encrypt cert and serves HTTPS directly (no central ingress),
+//   2. curls + runs install.sh,
+//   3. opens the public web ports (80 for the ACME HTTP-01 challenge + redirect,
+//      443 for HTTPS) and keeps SSH; everything else stays default-deny,
 //   4. injects the shared inference key and auto-deploys the agent so chat works
 //      out of the box (operator chose Diffract-fronted inference).
 //
-// Kept under Hostinger's 48KB limit by curl-ing install.sh rather than embedding
-// it. The script is idempotent enough to be re-run by a recreate.
+// The control plane publishes the matching DNS A record as soon as the VM reports
+// an IP; the box's Caddy retries ACME until that record resolves, so the two race
+// harmlessly to completion. Kept under Hostinger's 48KB limit by curl-ing
+// install.sh rather than embedding it; idempotent enough to survive a recreate.
 // ─────────────────────────────────────────────────────────────────────────────
 
 // provider name -> the env var the agent stack expects the key under.
@@ -33,42 +36,44 @@ function shq(v) {
  * @param {{
  *   subdomain: string,
  *   adminPassword: string,
- *   ingressIp: string,
+ *   domain: string,                 // control domain, e.g. "diffraction.in"
  *   install: { installUrl: string, repo: string, branch: string, githubToken?: string },
  *   inject: { provider: string, key: string, model?: string },
  * }} args
  * @returns {string} bash script (<48KB)
  */
-export function buildPostInstallScript({ subdomain, adminPassword, ingressIp, install, inject }) {
+export function buildPostInstallScript({ subdomain, adminPassword, domain, install, inject }) {
   const keyEnv = providerKeyEnv(inject.provider);
+  const fqdn = `${subdomain}.${domain}`;
   return `#!/usr/bin/env bash
-# Diffract post-install for tenant ${subdomain} — runs as root on a fresh VPS.
+# Diffract post-install for tenant ${fqdn} — runs as root on a fresh VPS.
 set -euo pipefail
 exec > >(tee -a /post_install.log) 2>&1
 echo "[diffract-postinstall] start $(date -u +%FT%TZ)"
 
-# ── 1. Install env -> install.sh runs setup in --vps mode (ingress owns TLS) ──
+# ── 1. Install env -> install.sh runs setup with a DOMAIN (box owns its TLS) ───
+export DIFFRACT_DOMAIN=${shq(fqdn)}
 export DIFFRACT_ADMIN_PASSWORD=${shq(adminPassword)}
 export DIFFRACT_REPO=${shq(install.repo)}
 export DIFFRACT_BRANCH=${shq(install.branch)}
 export DIFFRACT_DIR=/root/diffract-main
 ${install.githubToken ? `export GITHUB_TOKEN=${shq(install.githubToken)}\n` : ""}
-# ── 2. Run the one-shot installer (no positional domain => --vps mode) ────────
+# ── 2. Run the one-shot installer (DIFFRACT_DOMAIN => HTTPS via the box's Caddy) ─
 curl -fsSL ${shq(install.installUrl)} | bash
 
-# ── 3. Lock the public surface (:80) to the ingress only ─────────────────────
-# The box's Caddy serves everything on :80 (it routes /agent->:9119, /v1->:8642,
-# else ->:3000 internally over localhost). So only :80 must be reachable, and
-# only from the central ingress.
-INGRESS_IP=${shq(ingressIp)}
+# ── 3. Open the public web ports (the box serves its own HTTPS now) ───────────
+# Caddy needs :80 (ACME HTTP-01 + HTTP->HTTPS redirect) and :443 (HTTPS). It
+# proxies internally over localhost (/agent->:9119, /v1->:8642, else->:3000), so
+# only 22/80/443 are ever exposed.
 if command -v ufw >/dev/null 2>&1; then
   ufw --force reset || true
   ufw default deny incoming
   ufw default allow outgoing
   ufw allow OpenSSH || ufw allow 22/tcp || true
-  ufw allow from "$INGRESS_IP" to any port 80 proto tcp
+  ufw allow 80/tcp
+  ufw allow 443/tcp
   ufw --force enable
-  echo "[diffract-postinstall] ufw: port 80 allowed from $INGRESS_IP only"
+  echo "[diffract-postinstall] ufw: 22/80/443 allowed; default deny"
 fi
 
 # ── 4. Inject the shared inference key + auto-deploy so chat works OOTB ───────

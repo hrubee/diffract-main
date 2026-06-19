@@ -1,0 +1,12 @@
+node_modules
+data
+outbox
+*.log
+.env
+.env.*
+!.env.example
+.git
+test
+README.md
+RAILWAY.md
+deploy
