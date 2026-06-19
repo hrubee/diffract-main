@@ -43,6 +43,10 @@ export class Hostinger {
         Accept: "application/json",
       },
       body: body === undefined ? undefined : JSON.stringify(body),
+      // Bound every call so a hung Hostinger API can't strand a provision (a
+      // tenant left in "provisioning" forever). The provisioner's own poll loop
+      // handles the slow async parts (VM boot); individual calls should be fast.
+      signal: AbortSignal.timeout(30_000),
     });
     const text = await res.text();
     let parsed;

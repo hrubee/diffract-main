@@ -250,6 +250,22 @@ const server = http.createServer(async (req, res) => {
         }).catch((e) => console.error(`[retry] ${e.message}`));
         return json(res, 202, { ok: true, retrying: t.subdomain });
       }
+      if (req.method === "POST" && pathname === "/internal/delete") {
+        // Ops cleanup — remove a tenant record (does NOT touch a live VPS/DNS).
+        const sub = url.searchParams.get("subdomain");
+        const removed = sub ? await store.delete(sub) : false;
+        return json(res, removed ? 200 : 404, { ok: removed, deleted: removed ? sub : null });
+      }
+      if (req.method === "POST" && pathname === "/internal/email-test") {
+        // Verify SMTP delivery without a full provision.
+        const to = url.searchParams.get("to");
+        if (!to) return json(res, 400, { error: "?to= required" });
+        const r = await sendWelcome(config.email, {
+          to, subdomain: "test", url: `https://test.${config.controlDomain}`,
+          adminPassword: "test-password-123", outboxDir,
+        });
+        return json(res, 200, { sent: r.sent, error: r.error, outboxPath: r.outboxPath });
+      }
       return json(res, 404, { error: "not found" });
     }
 
@@ -261,6 +277,18 @@ const server = http.createServer(async (req, res) => {
     if (!res.headersSent) json(res, 500, { error: "internal error" });
   }
 });
+
+// Recover provisions interrupted by a restart: a fresh process has no in-flight
+// work, so any tenant still "provisioning" was orphaned (the webhook already
+// ACK'd, so Dodo won't retry). Mark them failed + retryable — never auto-buy on
+// boot, or a crash loop would order VPSs.
+store.recoverInterrupted()
+  .then((recovered) => {
+    if (recovered.length) {
+      console.warn(`[reconcile] recovered ${recovered.length} interrupted provision(s): ${recovered.join(", ")} — POST /internal/retry?subdomain=<sub> to resume`);
+    }
+  })
+  .catch((e) => console.error(`[reconcile] ${e.message}`));
 
 server.listen(config.port, config.bindHost, () => {
   console.log(`[control-plane] listening on ${config.bindHost}:${config.port}`);

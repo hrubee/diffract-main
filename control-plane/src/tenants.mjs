@@ -124,4 +124,38 @@ export class TenantStore {
       return next;
     });
   }
+
+  /** Remove a tenant record entirely (ops cleanup). Returns true if it existed. */
+  delete(subdomain) {
+    return this.#withLock(async (state) => {
+      if (!state.tenants[subdomain]) return false;
+      delete state.tenants[subdomain];
+      await this.#persist();
+      return true;
+    });
+  }
+
+  /**
+   * On startup there are NO in-flight provisions (fresh process), so any tenant
+   * left in "provisioning" was interrupted (a redeploy/crash killed the work
+   * after the webhook already ACK'd). Flag them "failed" so they're visible +
+   * retryable — but DON'T auto-provision (a crash loop must never buy VPSs).
+   * Returns the subdomains it recovered.
+   */
+  recoverInterrupted() {
+    return this.#withLock(async (state) => {
+      const recovered = [];
+      const now = new Date().toISOString();
+      for (const t of Object.values(state.tenants)) {
+        if (t.status === "provisioning") {
+          t.status = "failed";
+          t.error = "provisioning interrupted (recovered on startup) — POST /internal/retry to resume";
+          t.updatedAt = now;
+          recovered.push(t.subdomain);
+        }
+      }
+      if (recovered.length) await this.#persist();
+      return recovered;
+    });
+  }
 }

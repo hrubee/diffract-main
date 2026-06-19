@@ -2,9 +2,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
+import path from "node:path";
+import os from "node:os";
+import { rmSync } from "node:fs";
 import { verifyWebhook, parseEvent } from "../src/dodo.mjs";
 import { buildPostInstallScript } from "../src/postinstall.mjs";
 import { createDns, HostingerDns, CloudflareDns, DnsError } from "../src/dns.mjs";
+import { parseSmtpUrl, addrOnly, dotStuff } from "../src/email.mjs";
+import { TenantStore } from "../src/tenants.mjs";
 
 // Helper: sign a body the way Dodo (Standard Webhooks) does.
 function sign({ id, ts, body, secret }) {
@@ -174,4 +179,38 @@ test("createDns fails fast on unknown provider and missing creds", () => {
   assert.throws(() => createDns({ provider: "cloudflare", domain: "x", ttl: 300, hostinger: {}, cloudflare: {} }), DnsError);
   // hostinger with a token is fine
   assert.ok(createDns({ provider: "hostinger", domain: "x", ttl: 300, hostinger: { token: "t" }, cloudflare: {} }));
+});
+
+// ── email (SMTP helpers) ────────────────────────────────────────────────────────
+test("parseSmtpUrl parses a Hostinger smtps URL and decodes the password", () => {
+  const s = parseSmtpUrl("smtps://you%40diffraction.in:p%40ss%3Aword@smtp.hostinger.com:465");
+  assert.equal(s.secure, true);
+  assert.equal(s.host, "smtp.hostinger.com");
+  assert.equal(s.port, 465);
+  assert.equal(s.user, "you@diffraction.in");
+  assert.equal(s.pass, "p@ss:word");
+  assert.equal(parseSmtpUrl(""), null);
+  assert.equal(parseSmtpUrl("http://nope"), null);
+});
+
+test("addrOnly + dotStuff", () => {
+  assert.equal(addrOnly("Diffract <noreply@diffraction.in>"), "noreply@diffraction.in");
+  assert.equal(addrOnly("bare@x.com"), "bare@x.com");
+  assert.equal(dotStuff("line1\r\n.hidden\r\n"), "line1\r\n..hidden\r\n");
+  assert.equal(dotStuff(".start"), "..start");
+});
+
+// ── tenant recovery (restart resilience) ──────────────────────────────────────────
+test("recoverInterrupted flips stale provisioning -> failed; leaves active alone", async () => {
+  const file = path.join(os.tmpdir(), `cp-test-tenants-${process.pid}.json`);
+  rmSync(file, { force: true });
+  const store = new TenantStore(file);
+  await store.upsert("stuck", { status: "provisioning", email: "a@b.com" });
+  await store.upsert("live", { status: "active", email: "c@d.com" });
+  const recovered = await store.recoverInterrupted();
+  assert.deepEqual(recovered, ["stuck"]);
+  assert.equal((await store.get("stuck")).status, "failed");
+  assert.match((await store.get("stuck")).error, /interrupted/);
+  assert.equal((await store.get("live")).status, "active"); // untouched
+  rmSync(file, { force: true });
 });
