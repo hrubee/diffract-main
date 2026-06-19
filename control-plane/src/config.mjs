@@ -57,7 +57,7 @@ export const config = {
   dodo: {
     webhookSecret: req("DODO_WEBHOOK_SECRET"),
     apiKey: opt("DODO_API_KEY"),
-    // The subscription product the signup page sells (Diffract, ₹2,000/mo LIVE).
+    // The subscription product the signup page sells (Diffract, ₹2,500/mo LIVE).
     productId: opt("DODO_PRODUCT_ID"),
     base: opt("DODO_BASE", "https://live.dodopayments.com"),
   },
