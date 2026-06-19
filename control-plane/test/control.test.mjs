@@ -103,16 +103,45 @@ function stubFetch(responseBody = {}) {
   return { impl, calls };
 }
 
-test("Hostinger DNS upsert PUTs an A record for the subdomain to the zone", async () => {
-  const { impl, calls } = stubFetch({ ok: true });
+test("Hostinger DNS point PRESERVES existing records (app) and adds the tenant", async () => {
+  // The live zone already has app.diffraction.in + MX. Provisioning `acme` must
+  // read the zone (GET) then PUT it back with app intact + acme added. This test
+  // encodes the operator's hard constraint: do not touch app.diffraction.in.
+  const existingZone = [
+    { name: "app", type: "A", ttl: 14400, records: [{ content: "187.127.132.39" }] },
+    { name: "@", type: "MX", ttl: 14400, records: [{ content: "10 mx.diffraction.in" }] },
+  ];
+  const calls = [];
+  const impl = async (url, opts = {}) => {
+    const method = opts.method ?? "GET";
+    calls.push({ url, method, body: opts.body ? JSON.parse(opts.body) : undefined, headers: opts.headers });
+    return { ok: true, status: 200, text: async () => JSON.stringify(method === "GET" ? existingZone : { ok: true }) };
+  };
   const dns = new HostingerDns({ token: "ht", domain: "diffraction.in", ttl: 300 }, impl);
   await dns.pointSubdomain("acme", "203.0.113.9");
-  assert.equal(calls.length, 1);
-  assert.equal(calls[0].method, "PUT");
-  assert.match(calls[0].url, /\/api\/dns\/v1\/zones\/diffraction\.in$/);
-  assert.equal(calls[0].headers.Authorization, "Bearer ht");
-  assert.equal(calls[0].body.overwrite, true);
-  assert.deepEqual(calls[0].body.zone[0], { name: "acme", type: "A", ttl: 300, records: [{ content: "203.0.113.9" }] });
+  assert.equal(calls[0].method, "GET");                 // reads first
+  assert.equal(calls[1].method, "PUT");
+  assert.equal(calls[1].body.overwrite, true);
+  const byName = Object.fromEntries(calls[1].body.zone.map((r) => [r.name, r]));
+  assert.ok(byName.app, "app.diffraction.in MUST be preserved in the PUT");
+  assert.deepEqual(byName.app.records, [{ content: "187.127.132.39" }]);
+  assert.ok(byName["@"], "the MX record must be preserved too");
+  assert.deepEqual(byName.acme, { name: "acme", type: "A", ttl: 300, records: [{ content: "203.0.113.9" }] });
+});
+
+test("Hostinger DNS point FAILS SAFE when the zone can't be read (won't wipe siblings)", async () => {
+  const impl = async () => ({ ok: true, status: 200, text: async () => "[]" }); // false-empty read
+  const dns = new HostingerDns({ token: "ht", domain: "diffraction.in" }, impl);
+  await assert.rejects(() => dns.pointSubdomain("acme", "1.2.3.4"), /could not read existing zone/);
+});
+
+test("DNS adapters REFUSE to touch protected names (app / www)", async () => {
+  const impl = async () => ({ ok: true, status: 200, text: async () => "[]" });
+  const h = new HostingerDns({ token: "ht", domain: "diffraction.in" }, impl);
+  await assert.rejects(() => h.pointSubdomain("app", "1.2.3.4"), /protected/);
+  await assert.rejects(() => h.unpointSubdomain("app"), /protected/);
+  const cf = new CloudflareDns({ token: "cf", zoneId: "z", domain: "diffraction.in" }, impl);
+  await assert.rejects(() => cf.pointSubdomain("www", "1.2.3.4"), /protected/);
 });
 
 test("Hostinger DNS unpoint DELETEs by name+type filter", async () => {
