@@ -431,6 +431,21 @@ else
     print_warning "MCP-in-chat needs it; once Docker is up, re-run setup.sh (or 'nemoclaw <sandbox> rebuild')."
 fi
 
+# Step 5.7: Stage the host Hermes checkout at /usr/local/lib/hermes-agent.
+# The port-forwarder service uses this as its WorkingDirectory AND copies its
+# hermes_cli/web_dist into the sandbox; the branding overlay (below) builds that
+# web_dist here. Without this dir a fresh box has nothing to chdir to, so
+# sandbox-port-forwarder.service crash-loops with status=200/CHDIR and the /agent
+# dashboard never comes up. Stage only when missing (don't clobber an existing
+# checkout — resolve_hermes_dir / _overlay_host then keep it updated).
+HOST_HERMES_DIR="/usr/local/lib/hermes-agent"
+if [ -d "$LOCAL_HERMES_DIR" ] && [ ! -d "$HOST_HERMES_DIR/hermes_cli" ]; then
+    print_warning "Staging host Hermes checkout at $HOST_HERMES_DIR (port-forwarder workdir + web_dist source)..."
+    mkdir -p "$HOST_HERMES_DIR"
+    cp -a "$LOCAL_HERMES_DIR/." "$HOST_HERMES_DIR/"
+    print_success "Host Hermes staged at $HOST_HERMES_DIR"
+fi
+
 # Step 6: Overlay custom Diffract branding onto the installed Hermes and
 # rebuild (web + TUI + Python). Runs in both local and VPS modes.
 apply_diffract_branding
