@@ -195,28 +195,45 @@ fi
 print_header "Setting up Node version with NVM"
 NVM_FOUND=false
 
-for path in "$HOME/.nvm/nvm.sh" "/root/.nvm/nvm.sh" "/home/ubuntu/.nvm/nvm.sh" "/home/debian/.nvm/nvm.sh"; do
-    if [ -s "$path" ]; then
+for path in "${NVM_DIR:-}/nvm.sh" "$HOME/.nvm/nvm.sh" "/root/.nvm/nvm.sh" "/home/ubuntu/.nvm/nvm.sh" "/home/debian/.nvm/nvm.sh"; do
+    if [ -n "$path" ] && [ -s "$path" ]; then
         print_warning "Loading NVM from $path..."
+        export NVM_DIR="$(dirname "$path")"
         . "$path"
         NVM_FOUND=true
         break
     fi
 done
 
+# A fresh VPS often ships Node 18 (or none), but the CLI build requires Node 22
+# (npm@latest needs Node >= 20.17/22.9). If NVM is missing, install it so setup.sh
+# can pin Node 22 itself — this makes setup.sh self-sufficient; install.sh is a
+# convenience, not a prerequisite.
+if [ "$NVM_FOUND" = false ]; then
+    print_warning "NVM not found — installing NVM to pin Node 22 (current node: $(command -v node >/dev/null 2>&1 && node -v || echo none))..."
+    export NVM_DIR="$HOME/.nvm"
+    curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash || \
+        print_warning "NVM install script failed (offline?); will fall back to system Node."
+    if [ -s "$NVM_DIR/nvm.sh" ]; then
+        . "$NVM_DIR/nvm.sh"
+        NVM_FOUND=true
+    fi
+fi
+
 if [ "$NVM_FOUND" = true ]; then
-    print_warning "Switching to Node v22..."
-    nvm use 22 || {
-        print_warning "Node v22 is not installed in NVM. Attempting to install..."
-        nvm install 22
-        nvm use 22
-    }
+    print_warning "Ensuring Node v22 is installed and active..."
+    nvm install 22
+    nvm use 22
     print_success "Using Node version: $(node -v)"
 elif command -v node &> /dev/null; then
-    print_warning "NVM not found, but Node.js is installed globally."
-    print_warning "Current Node version: $(node -v)"
-    if [[ "$(node -v)" != v22* ]]; then
-        print_warning "WARNING: Node version is not v22. Setup may experience issues."
+    # No NVM (e.g. offline). Use system Node, but refuse versions too old to build.
+    NODE_VER="$(node -v)"
+    NODE_MAJOR="$(echo "$NODE_VER" | sed -E 's/^v([0-9]+).*/\1/')"
+    print_warning "NVM unavailable; using system Node $NODE_VER"
+    if [ "${NODE_MAJOR:-0}" -lt 20 ]; then
+        print_error "Node $NODE_VER is too old — the CLI build needs Node >= 20 (22 recommended)."
+        print_error "Install Node 22 (e.g. via NVM) and re-run, or run install.sh which handles it."
+        exit 1
     fi
 else
     print_error "NVM and Node.js not found! Please install Node.js (v22 recommended) before running this script."
@@ -337,7 +354,9 @@ fi
 
 cd "$NEMOCLAW_DIR"
 print_warning "Updating npm..."
-npm install -g npm@latest
+# Non-fatal: the npm bundled with Node 22 is sufficient. A self-update can fail on
+# a too-old Node (npm@latest needs Node >= 20.17/22.9); don't abort the install.
+npm install -g npm@latest || print_warning "npm self-update skipped (bundled npm is fine)"
 print_warning "Installing CLI dependencies..."
 npm install
 print_warning "Building CLI typescript project..."
