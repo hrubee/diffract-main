@@ -76,8 +76,8 @@ export function smtpSend({ host, port, secure, user, pass, from, to, raw }, time
       try { sock.destroy(); } catch { /* ignore */ }
       resolve({ ok, error: error ?? null });
     };
-    sock.setTimeout(timeoutMs, () => finish(false, "smtp timeout"));
-    sock.on("error", (e) => finish(false, `smtp socket: ${e.message}`));
+    sock.setTimeout(timeoutMs, () => finish(false, `smtp timeout connecting ${host}:${port}`));
+    sock.on("error", (e) => finish(false, `smtp socket ${e.code || e.errno || e.syscall || e.message || "error"} (${host}:${port})`));
     sock.setEncoding("utf8");
     sock.on("data", (chunk) => {
       buf += chunk;
