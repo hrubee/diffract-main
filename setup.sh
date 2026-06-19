@@ -401,6 +401,24 @@ print_header "Building Hermes Sandbox Base Image (bakes in mcp / pty / chromium)
 HERMES_BASE_DOCKERFILE="$NEMOCLAW_DIR/agents/hermes/Dockerfile.base"
 HERMES_BASE_IMAGE="ghcr.io/nvidia/nemoclaw/hermes-sandbox-base:latest"
 if command -v docker >/dev/null 2>&1 && docker ps >/dev/null 2>&1 && [ -f "$HERMES_BASE_DOCKERFILE" ]; then
+    # Dockerfile.base needs BuildKit (RUN --mount=type=bind). Ubuntu's docker.io
+    # package ships NO buildx plugin, so `DOCKER_BUILDKIT=1 docker build` aborts with
+    # "buildx component is missing". Ensure the buildx CLI plugin first (idempotent;
+    # a no-op when Docker was installed from Docker's own repo / get.docker.com).
+    if ! docker buildx version >/dev/null 2>&1; then
+        print_warning "Docker buildx plugin missing — installing it (Dockerfile.base needs BuildKit)..."
+        BUILDX_VER="v0.19.3"
+        BUILDX_ARCH="$(uname -m)"; case "$BUILDX_ARCH" in x86_64) BUILDX_ARCH=amd64;; aarch64|arm64) BUILDX_ARCH=arm64;; esac
+        mkdir -p /usr/local/lib/docker/cli-plugins
+        if curl -fsSL "https://github.com/docker/buildx/releases/download/${BUILDX_VER}/buildx-${BUILDX_VER}.linux-${BUILDX_ARCH}" \
+                -o /usr/local/lib/docker/cli-plugins/docker-buildx 2>/dev/null; then
+            chmod +x /usr/local/lib/docker/cli-plugins/docker-buildx
+            docker buildx version >/dev/null 2>&1 && print_success "  buildx installed" \
+                || print_warning "  buildx still unavailable after install"
+        else
+            print_warning "  buildx download failed (offline?) — base image build may fail"
+        fi
+    fi
     print_warning "Building $HERMES_BASE_IMAGE from local Dockerfile.base (first run: several minutes)..."
     if DOCKER_BUILDKIT=1 docker build -f "$HERMES_BASE_DOCKERFILE" -t "$HERMES_BASE_IMAGE" "$NEMOCLAW_DIR"; then
         print_success "Hermes base image built locally — onboard will use THIS (mcp/pty/chromium baked in), not the stale upstream image"
