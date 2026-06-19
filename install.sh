@@ -8,14 +8,14 @@
 # baked in), installs the CLI + helper scripts, and wires systemd + Caddy.
 #
 # USAGE (with a domain → automatic HTTPS):
-#   curl -fsSL https://raw.githubusercontent.com/riaan-attar/diffract-main/main/install.sh | bash -s -- yourdomain.com
+#   curl -fsSL https://raw.githubusercontent.com/hrubee/diffract-main/main/install.sh | bash -s -- yourdomain.com
 #
 # USAGE (no domain → serves on http://<vps-ip>):
-#   curl -fsSL https://raw.githubusercontent.com/riaan-attar/diffract-main/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/hrubee/diffract-main/main/install.sh | bash
 #
 # OVERRIDES (environment variables):
 #   DIFFRACT_DOMAIN          domain for HTTPS (same as the 1st positional arg)
-#   DIFFRACT_REPO            git URL    (default https://github.com/riaan-attar/diffract-main)
+#   DIFFRACT_REPO            git URL    (default https://github.com/hrubee/diffract-main)
 #   DIFFRACT_BRANCH          branch     (default main)
 #   DIFFRACT_DIR             install dir (default /root/diffract-main) — keep it stable;
 #                            systemd units bake absolute paths to it
@@ -25,7 +25,7 @@
 set -euo pipefail
 
 DOMAIN="${1:-${DIFFRACT_DOMAIN:-}}"
-REPO="${DIFFRACT_REPO:-https://github.com/riaan-attar/diffract-main}"
+REPO="${DIFFRACT_REPO:-https://github.com/hrubee/diffract-main}"
 BRANCH="${DIFFRACT_BRANCH:-main}"
 DIR="${DIFFRACT_DIR:-/root/diffract-main}"
 NODE_MAJOR=22

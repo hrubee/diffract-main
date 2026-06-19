@@ -64,8 +64,8 @@ export const config = {
   install: {
     ingressIp: req("INGRESS_PUBLIC_IP"),
     installUrl: opt("DIFFRACT_INSTALL_URL",
-      "https://raw.githubusercontent.com/riaan-attar/diffract-main/main/install.sh"),
-    repo: opt("DIFFRACT_REPO", "https://github.com/riaan-attar/diffract-main"),
+      "https://raw.githubusercontent.com/hrubee/diffract-main/main/install.sh"),
+    repo: opt("DIFFRACT_REPO", "https://github.com/hrubee/diffract-main"),
     branch: opt("DIFFRACT_BRANCH", "main"),
     githubToken: opt("DIFFRACT_GITHUB_TOKEN"),
   },

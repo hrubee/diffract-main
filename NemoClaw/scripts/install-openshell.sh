@@ -341,7 +341,7 @@ trap 'rm -rf "$tmpdir"' EXIT
 # files, so the mirror is trusted no more than upstream. The mirror tag mirrors the
 # upstream tag with an `openshell-` prefix (openshell-v0.0.57). Set
 # OPENSHELL_MIRROR_BASE="" to skip the mirror and use NVIDIA directly.
-OPENSHELL_MIRROR_BASE="${OPENSHELL_MIRROR_BASE-https://github.com/riaan-attar/diffract-main/releases/download/openshell-${RELEASE_TAG}}"
+OPENSHELL_MIRROR_BASE="${OPENSHELL_MIRROR_BASE-https://github.com/hrubee/diffract-main/releases/download/openshell-${RELEASE_TAG}}"
 OPENSHELL_UPSTREAM_BASE="https://github.com/NVIDIA/OpenShell/releases/download/${RELEASE_TAG}"
 
 download_with_curl() {

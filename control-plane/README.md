@@ -53,7 +53,7 @@ host to `vpsIp:80`, so we reuse that verified routing. The box's `:80` is firewa
 ## Deploy (on the control VPS, as root)
 
 ```bash
-git clone https://github.com/riaan-attar/diffract-main && cd diffract-main/control-plane
+git clone https://github.com/hrubee/diffract-main && cd diffract-main/control-plane
 sudo bash deploy/setup-control-plane.sh        # installs Node 22 + Caddy, seeds .env, installs systemd unit
 sudo nano /opt/diffract-control/.env           # fill in every value under "OPERATOR MUST SET"
 sudo nano /etc/caddy/Caddyfile                 # set your ACME email + domain; then: systemctl reload caddy
