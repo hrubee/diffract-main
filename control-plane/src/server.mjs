@@ -129,7 +129,7 @@ async function handleCheckout(req, res) {
   if (!config.dodo.apiKey) return json(res, 500, { error: "payment backend not configured (DODO_API_KEY)" }, corsHeaders());
   if (!config.dodo.productId) return json(res, 500, { error: "payment backend not configured (DODO_PRODUCT_ID)" }, corsHeaders());
 
-  const returnUrl = `${config.publicBaseUrl}/?paid=1` + (workspace ? `&ws=${encodeURIComponent(workspace)}` : "");
+  const returnUrl = `${config.publicBaseUrl}/signup.html?paid=1` + (workspace ? `&ws=${encodeURIComponent(workspace)}` : "");
   const metadata = {};
   if (workspace) metadata.workspace = workspace;
   if (email) metadata.email = email;

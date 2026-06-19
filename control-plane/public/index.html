@@ -3,11 +3,15 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Create your workspace — Diffract</title>
-<meta name="description" content="Spin up your own isolated Diffract instance — a dedicated, kernel-isolated AI agent runtime on your private URL." />
+<title>Diffract — Enterprise AI Agent Runtime</title>
+<meta name="description" content="Diffract runs autonomous AI agents inside kernel-isolated sandboxes built on NVIDIA OpenShell — deny-by-default egress, credentials the agent can never read, and a full audit trail. Any model, any provider. Deploy in one command." />
+<meta property="og:title" content="Diffract — Enterprise AI Agent Runtime" />
+<meta property="og:description" content="Autonomous AI agents your security team can actually approve. Kernel-isolated, policy-controlled, auditable. Deploy in one command." />
+<meta property="og:type" content="website" />
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@300;400;500;600;700;800;900&family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400;1,500&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
   :root {
+    /* Vault color system — locked across all brand directions */
     --blast-steel: #1A1C1E;
     --forged-iron: #2C2F33;
     --brushed-titanium: #4A4E54;
@@ -17,12 +21,30 @@
     --vault-amber: #C8850A;
     --status-gold: #EBA020;
     --bg-void: #0B0C0E;
-    --status-red: #d9534f;
-    --status-green: #2faa6b;
+
+    /* 8pt grid system */
+    --space-1: 8px;
+    --space-2: 16px;
+    --space-3: 24px;
+    --space-4: 32px;
+    --space-5: 40px;
+    --space-6: 48px;
+    --space-8: 64px;
+    --space-10: 80px;
+    --space-12: 96px;
+    --space-16: 128px;
+    --space-20: 160px;
+
+    /* Easing — Framer-grade curves */
+    --ease-out: cubic-bezier(.16,1,.3,1);
+    --ease-in-out: cubic-bezier(.7,0,.3,1);
     --ease-power: cubic-bezier(.2,.8,.3,1);
   }
+
   * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: auto; }
   html, body { overscroll-behavior: none; }
+
   body {
     font-family: 'Inter', sans-serif;
     background: var(--bg-void);
@@ -32,296 +54,2137 @@
     -webkit-font-smoothing: antialiased;
     overflow-x: hidden;
     cursor: none;
-    min-height: 100vh;
   }
 
-  /* CUSTOM CURSOR */
-  .cursor { position: fixed; width: 8px; height: 8px; background: var(--vault-amber); border-radius: 50%; pointer-events: none; z-index: 9999; mix-blend-mode: screen; box-shadow: 0 0 20px var(--vault-amber); transform: translate(-50%,-50%); }
-  .cursor-ring { position: fixed; width: 40px; height: 40px; border: 1px solid rgba(200,133,10,0.5); border-radius: 50%; pointer-events: none; z-index: 9998; transition: transform .25s var(--ease-power), width .3s, height .3s; transform: translate(-50%,-50%); }
+  /* Smooth scroll wrapper — simple identity wrapper, no transforms */
+  #smooth-wrapper { position: relative; }
+  #smooth-content { position: relative; }
 
-  /* BACKGROUND */
-  .glow { position: fixed; inset: 0; z-index: 0; pointer-events: none;
-    background: radial-gradient(ellipse 60% 50% at 50% 0%, rgba(200,133,10,0.10), transparent 60%); }
-  .noise { position: fixed; inset: 0; pointer-events: none; opacity: .04; z-index: 1;
-    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); }
-  .grid-overlay { position: fixed; inset: 0; pointer-events: none; z-index: 1;
-    background-image: linear-gradient(rgba(212,216,220,.025) 1px, transparent 1px), linear-gradient(90deg, rgba(212,216,220,.025) 1px, transparent 1px);
-    background-size: 80px 80px; mask-image: radial-gradient(ellipse at center, black 30%, transparent 75%); -webkit-mask-image: radial-gradient(ellipse at center, black 30%, transparent 75%); }
+  /* CUSTOM CURSOR */
+  .cursor {
+    position: fixed;
+    width: 8px; height: 8px;
+    background: var(--vault-amber);
+    border-radius: 50%;
+    pointer-events: none;
+    z-index: 9999;
+    mix-blend-mode: screen;
+    transition: transform 0.15s ease-out;
+    box-shadow: 0 0 20px var(--vault-amber);
+  }
+  .cursor-ring {
+    position: fixed;
+    width: 40px; height: 40px;
+    border: 1px solid rgba(200,133,10,0.5);
+    border-radius: 50%;
+    pointer-events: none;
+    z-index: 9998;
+    transition: transform 0.3s ease-out, width 0.3s, height 0.3s;
+    transform: translate(-50%, -50%);
+  }
+
+  /* 3D BACKGROUND CANVAS */
+  #bg-canvas {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    z-index: 0;
+    pointer-events: none;
+  }
+
+  .noise {
+    position: fixed;
+    top: 0; left: 0; width: 100%; height: 100%;
+    pointer-events: none;
+    opacity: 0.04;
+    z-index: 1;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  .grid-overlay {
+    position: fixed;
+    top: 0; left: 0; width: 100%; height: 100%;
+    pointer-events: none;
+    z-index: 1;
+    background-image:
+      linear-gradient(rgba(212,216,220,0.025) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(212,216,220,0.025) 1px, transparent 1px);
+    background-size: 80px 80px;
+    mask-image: radial-gradient(ellipse at center, black 30%, transparent 75%);
+    -webkit-mask-image: radial-gradient(ellipse at center, black 30%, transparent 75%);
+  }
+
   main, header, footer { position: relative; z-index: 2; }
 
-  /* HEADER (matches landing) */
-  header { position: fixed; top: 0; left: 0; right: 0; z-index: 100; padding: 22px 0; background: rgba(14,15,17,.65); backdrop-filter: blur(20px) saturate(140%); border-bottom: 1px solid rgba(74,78,84,.3); }
-  .nav { max-width: 1440px; margin: 0 auto; padding: 0 48px; display: flex; align-items: center; justify-content: space-between; }
-  .logo { font-family: 'Cormorant Garamond', serif; font-size: 28px; font-weight: 500; letter-spacing: .32em; color: var(--satin-frost); text-decoration: none; display: flex; align-items: center; gap: 12px; }
-  .logo-mark { width: 22px; height: 22px; position: relative; transform-style: preserve-3d; animation: spin3d 8s linear infinite; }
-  .logo-mark::before, .logo-mark::after { content: ""; position: absolute; inset: 0; border: 1px solid var(--vault-amber); transform: rotate(45deg); box-shadow: 0 0 15px rgba(200,133,10,.6); }
-  .logo-mark::after { background: var(--vault-amber); inset: 6px; }
-  @keyframes spin3d { 0% { transform: rotateY(0deg); } 100% { transform: rotateY(360deg); } }
+  /* HEADER */
+  header {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 100;
+    padding: 22px 0;
+    background: rgba(14, 15, 17, 0.65);
+    backdrop-filter: blur(20px) saturate(140%);
+    border-bottom: 1px solid rgba(74, 78, 84, 0.3);
+  }
+  .nav {
+    max-width: 1440px;
+    margin: 0 auto;
+    padding: 0 48px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .logo {
+    font-family: 'Cormorant Garamond', serif;
+    font-size: 28px;
+    font-weight: 500;
+    letter-spacing: 0.32em;
+    color: var(--satin-frost);
+    text-decoration: none;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .logo-mark {
+    width: 22px; height: 22px;
+    position: relative;
+    transform-style: preserve-3d;
+    animation: spin3d 8s linear infinite;
+  }
+  .logo-mark::before, .logo-mark::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border: 1px solid var(--vault-amber);
+    transform: rotate(45deg);
+    box-shadow: 0 0 15px rgba(200,133,10,0.6);
+  }
+  .logo-mark::after {
+    background: var(--vault-amber);
+    inset: 6px;
+  }
+  @keyframes spin3d {
+    0% { transform: rotateY(0deg); }
+    100% { transform: rotateY(360deg); }
+  }
   .nav-links { display: flex; gap: 42px; align-items: center; }
-  .nav-links a { color: var(--matte-alloy); text-decoration: none; font-size: 11px; font-weight: 500; letter-spacing: .22em; text-transform: uppercase; transition: color .3s; }
+  .nav-links a {
+    color: var(--matte-alloy);
+    text-decoration: none;
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    position: relative;
+    transition: color 0.3s;
+  }
+  .nav-links a::after {
+    content: "";
+    position: absolute;
+    bottom: -6px; left: 0;
+    width: 0; height: 1px;
+    background: var(--vault-amber);
+    transition: width 0.3s;
+  }
   .nav-links a:hover { color: var(--vault-amber); }
+  .nav-links a:hover::after { width: 100%; }
 
-  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 10px; padding: 14px 28px; font-size: 11px; font-weight: 600; letter-spacing: .2em; text-transform: uppercase; text-decoration: none; border: 1px solid var(--vault-amber); color: var(--vault-amber); background: transparent; cursor: none; transition: all .3s var(--ease-power); position: relative; overflow: hidden; }
-  .btn::before { content: ""; position: absolute; top: 0; left: -100%; width: 100%; height: 100%; background: var(--vault-amber); transition: left .4s var(--ease-power); z-index: -1; }
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 28px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    text-decoration: none;
+    border: 1px solid var(--vault-amber);
+    color: var(--vault-amber);
+    background: transparent;
+    cursor: none;
+    transition: all 0.3s cubic-bezier(.2,.8,.3,1);
+    position: relative;
+    overflow: hidden;
+  }
+  .btn::before {
+    content: "";
+    position: absolute;
+    top: 0; left: -100%;
+    width: 100%; height: 100%;
+    background: var(--vault-amber);
+    transition: left 0.4s cubic-bezier(.2,.8,.3,1);
+    z-index: -1;
+  }
   .btn:hover::before { left: 0; }
   .btn:hover { color: var(--blast-steel); }
-  .btn-primary { background: var(--vault-amber); color: var(--blast-steel); box-shadow: 0 8px 30px rgba(200,133,10,.3); }
+  .btn-primary {
+    background: var(--vault-amber);
+    color: var(--blast-steel);
+    box-shadow: 0 8px 30px rgba(200,133,10,0.3);
+  }
   .btn-primary::before { background: var(--status-gold); }
-  .btn-primary:hover { color: var(--blast-steel); box-shadow: 0 12px 40px rgba(235,160,32,.5); transform: translateY(-2px); }
-  .btn-primary:disabled { opacity: .45; cursor: none; box-shadow: none; transform: none; }
-  .btn-primary:disabled:hover::before { left: -100%; }
+  .btn-primary:hover {
+    color: var(--blast-steel);
+    box-shadow: 0 12px 40px rgba(235,160,32,0.5);
+    transform: translateY(-2px);
+  }
+  .btn-ghost {
+    border-color: var(--brushed-titanium);
+    color: var(--satin-frost);
+  }
+  .btn-ghost::before { background: var(--satin-frost); }
 
-  /* SIGNUP */
-  .signup-wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 140px 24px 80px; }
-  .signup-card { width: 100%; max-width: 520px; background: linear-gradient(180deg, rgba(44,47,51,.55), rgba(26,28,30,.55)); border: 1px solid rgba(74,78,84,.4); border-radius: 4px; padding: 48px; backdrop-filter: blur(12px); box-shadow: 0 40px 120px rgba(0,0,0,.5); }
-  .eyebrow { font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: .35em; text-transform: uppercase; color: var(--vault-amber); margin-bottom: 18px; }
-  .signup-card h1 { font-family: 'Cormorant Garamond', serif; font-weight: 500; font-size: 40px; line-height: 1.1; letter-spacing: .01em; margin-bottom: 12px; color: var(--satin-frost); }
-  .signup-card .lede { color: var(--matte-alloy); font-size: 15px; margin-bottom: 36px; }
-  .field { margin-bottom: 22px; }
-  .field label { display: block; font-size: 11px; font-weight: 600; letter-spacing: .18em; text-transform: uppercase; color: var(--cold-tungsten); margin-bottom: 10px; }
-  .field input { width: 100%; padding: 14px 16px; background: rgba(11,12,14,.7); border: 1px solid var(--brushed-titanium); border-radius: 3px; color: var(--satin-frost); font-family: 'Inter', sans-serif; font-size: 15px; cursor: none; transition: border-color .25s, box-shadow .25s; }
-  .field input::placeholder { color: var(--cold-tungsten); }
-  .field input:focus { outline: none; border-color: var(--vault-amber); box-shadow: 0 0 0 3px rgba(200,133,10,.12); }
-  .field input.invalid { border-color: var(--status-red); }
-  .preview { margin-top: 10px; font-family: 'JetBrains Mono', monospace; font-size: 13px; color: var(--matte-alloy); display: flex; align-items: center; gap: 8px; }
-  .preview b { color: var(--vault-amber); font-weight: 500; }
-  .preview .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--status-green); box-shadow: 0 0 8px var(--status-green); }
-  .preview .dot.bad { background: var(--status-red); box-shadow: 0 0 8px var(--status-red); }
-  .hint { margin-top: 8px; font-size: 12px; color: var(--cold-tungsten); min-height: 16px; }
-  .hint.error { color: var(--status-red); }
-  .submit-row { margin-top: 30px; }
-  .submit-row .btn-primary { width: 100%; padding: 16px; font-size: 12px; }
-  .fineprint { margin-top: 22px; font-size: 12px; color: var(--cold-tungsten); text-align: center; }
-  .fineprint a { color: var(--matte-alloy); text-decoration: underline; text-underline-offset: 2px; }
-  .fineprint a:hover { color: var(--vault-amber); }
+  section { padding: 140px 48px; position: relative; }
+  .container { max-width: 1440px; margin: 0 auto; }
 
-  /* SUCCESS STATE */
-  .success { display: none; text-align: center; }
-  .success.show { display: block; animation: rise .5s var(--ease-power); }
-  .hide { display: none; }
-  @keyframes rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
-  .success .check { width: 64px; height: 64px; margin: 0 auto 24px; border-radius: 50%; border: 1px solid var(--vault-amber); display: flex; align-items: center; justify-content: center; box-shadow: 0 0 30px rgba(200,133,10,.3); }
-  .success .check svg { width: 28px; height: 28px; stroke: var(--vault-amber); }
-  .success h2 { font-family: 'Cormorant Garamond', serif; font-weight: 500; font-size: 34px; margin-bottom: 14px; }
-  .success p { color: var(--matte-alloy); font-size: 15px; margin-bottom: 8px; }
-  .success .url { font-family: 'JetBrains Mono', monospace; color: var(--vault-amber); }
+  .section-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 10px;
+    letter-spacing: 0.32em;
+    text-transform: uppercase;
+    color: var(--vault-amber);
+    margin-bottom: 24px;
+  }
+  .section-label::before {
+    content: "";
+    width: 30px; height: 1px;
+    background: var(--vault-amber);
+  }
+
+  h1 {
+    font-family: 'Cormorant Garamond', serif;
+    font-size: clamp(54px, 7.6vw, 124px);
+    font-weight: 400;
+    line-height: 0.92;
+    color: var(--satin-frost);
+    margin-bottom: 40px;
+    letter-spacing: -0.025em;
+  }
+  h1 .accent {
+    color: var(--vault-amber);
+    font-style: italic;
+    font-weight: 300;
+    background: linear-gradient(135deg, var(--vault-amber) 0%, var(--status-gold) 50%, var(--vault-amber) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    background-size: 200% auto;
+    animation: shimmer 4s linear infinite;
+  }
+  @keyframes shimmer {
+    0% { background-position: 0% center; }
+    100% { background-position: 200% center; }
+  }
+  h2 {
+    font-family: 'Cormorant Garamond', serif;
+    font-size: clamp(42px, 6vw, 92px);
+    font-weight: 400;
+    line-height: 1.0;
+    color: var(--satin-frost);
+    margin-bottom: 32px;
+    letter-spacing: -0.022em;
+  }
+  h2 .accent {
+    color: var(--vault-amber);
+    font-style: italic;
+    font-weight: 300;
+  }
+  /* Industrial display variant (Barlow Condensed - for editorial pull-quotes) */
+  .display-industrial {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: -0.005em;
+    line-height: 0.92;
+  }
+  h3 {
+    font-family: 'Inter', sans-serif;
+    font-size: 19px;
+    font-weight: 600;
+    color: var(--satin-frost);
+    margin-bottom: 14px;
+    letter-spacing: 0.005em;
+  }
+  p { color: var(--matte-alloy); font-size: 15px; }
+  .lede {
+    font-size: 19px;
+    max-width: 680px;
+    line-height: 1.7;
+    color: var(--matte-alloy);
+  }
+
+  /* HERO */
+  .hero {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    padding-top: 180px;
+    padding-bottom: 140px;
+    position: relative;
+  }
+  .hero .container { position: relative; z-index: 3; }
+  .hero-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    max-width: 50%;
+    align-items: center;
+    width: 100%;
+  }
+  .hero-meta {
+    display: flex;
+    gap: 14px;
+    align-items: center;
+    margin-bottom: 30px;
+  }
+  .pill {
+    font-size: 10px;
+    letter-spacing: 0.24em;
+    text-transform: uppercase;
+    color: var(--matte-alloy);
+    padding: 8px 14px;
+    border: 1px solid var(--brushed-titanium);
+    background: rgba(44,47,51,0.5);
+    backdrop-filter: blur(10px);
+  }
+  .pill .dot {
+    display: inline-block;
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: #6FCF97;
+    margin-right: 8px;
+    box-shadow: 0 0 10px #6FCF97;
+    animation: pulse 2s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+  .hero-cta { display: flex; gap: 18px; margin-top: 44px; }
+
+  /* ============================================
+     VAULT 3D OBJECT (Hero centerpiece)
+     Fixed to viewport - content scrolls over it
+     Inspired by Monolith Studio's stationary sculpture
+     ============================================ */
+  .vault-stage {
+    position: absolute;
+    top: 0; right: 0;
+    width: 50vw;
+    height: 100vh;
+    pointer-events: none;
+    z-index: 2;
+    perspective: 2000px;
+    perspective-origin: center center;
+  }
+  .vault-stage.fixed {
+    position: fixed;
+    top: 0;
+    right: 0;
+  }
+  .vault-3d {
+    position: absolute;
+    top: 50%; left: 50%;
+    width: 0; height: 0;
+    transform-style: preserve-3d;
+    will-change: transform;
+  }
+  .vault-cube {
+    position: absolute;
+    top: 0; left: 0;
+    width: 280px; height: 280px;
+    transform-style: preserve-3d;
+    transform: translate(-50%, -50%) rotateX(-18deg) rotateY(35deg);
+    animation: vault-rotate 40s linear infinite;
+  }
+  @keyframes vault-rotate {
+    from { transform: translate(-50%, -50%) rotateX(-18deg) rotateY(0deg); }
+    to   { transform: translate(-50%, -50%) rotateX(-18deg) rotateY(360deg); }
+  }
+  .cube-face {
+    position: absolute;
+    top: 0; left: 0;
+    width: 280px; height: 280px;
+    background:
+      linear-gradient(135deg, rgba(74,78,84,0.75) 0%, rgba(26,28,30,0.92) 100%),
+      radial-gradient(circle at 30% 20%, rgba(212,216,220,0.08), transparent 60%);
+    border: 1px solid rgba(200,133,10,0.45);
+    box-shadow:
+      inset 0 0 60px rgba(0,0,0,0.6),
+      inset 0 0 20px rgba(200,133,10,0.1),
+      0 0 30px rgba(200,133,10,0.15);
+    backdrop-filter: blur(2px);
+  }
+  .cube-face::before {
+    content: "";
+    position: absolute;
+    inset: 18px;
+    border: 1px solid rgba(200,133,10,0.25);
+  }
+  .cube-face::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background:
+      linear-gradient(rgba(212,216,220,0.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(212,216,220,0.04) 1px, transparent 1px);
+    background-size: 28px 28px;
+    pointer-events: none;
+  }
+  .cube-front  { transform: translateZ(140px); }
+  .cube-back   { transform: rotateY(180deg) translateZ(140px); }
+  .cube-right  { transform: rotateY(90deg) translateZ(140px); }
+  .cube-left   { transform: rotateY(-90deg) translateZ(140px); }
+  .cube-top    { transform: rotateX(90deg) translateZ(140px); }
+  .cube-bottom { transform: rotateX(-90deg) translateZ(140px); }
+
+  /* Center diamond emblem */
+  .vault-emblem {
+    position: absolute;
+    top: 50%; left: 50%;
+    width: 96px; height: 96px;
+    transform: translate(-50%, -50%) rotate(45deg);
+    border: 1.5px solid var(--vault-amber);
+    box-shadow:
+      0 0 50px rgba(200,133,10,0.5),
+      inset 0 0 30px rgba(200,133,10,0.25);
+    animation: emblem-spin 18s linear infinite;
+    z-index: 5;
+  }
+  .vault-emblem::before,
+  .vault-emblem::after {
+    content: "";
+    position: absolute;
+    inset: 14px;
+    border: 1px solid rgba(200,133,10,0.5);
+  }
+  .vault-emblem::after {
+    inset: 28px;
+    background: var(--vault-amber);
+    box-shadow: 0 0 25px var(--vault-amber);
+  }
+  @keyframes emblem-spin {
+    from { transform: translate(-50%, -50%) rotate(45deg); }
+    to   { transform: translate(-50%, -50%) rotate(405deg); }
+  }
+
+  /* Concentric vault rings (geometric pattern from brand boards) */
+  .vault-ring {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%) rotate(45deg);
+    border: 1px solid rgba(200,133,10,0.18);
+    pointer-events: none;
+  }
+  .vault-ring.r1 { width: 380px; height: 380px; animation: ring-spin 60s linear infinite; }
+  .vault-ring.r2 { width: 460px; height: 460px; animation: ring-spin 80s linear infinite reverse; border-color: rgba(212,216,220,0.08); }
+  .vault-ring.r3 { width: 540px; height: 540px; animation: ring-spin 100s linear infinite; border-color: rgba(200,133,10,0.1); border-style: dashed; }
+  @keyframes ring-spin {
+    from { transform: translate(-50%, -50%) rotate(45deg); }
+    to   { transform: translate(-50%, -50%) rotate(405deg); }
+  }
+
+  /* Crosshair markers around vault */
+  .vault-marker {
+    position: absolute;
+    top: 50%; left: 50%;
+    width: 14px; height: 14px;
+    color: var(--vault-amber);
+  }
+  .vault-marker::before,
+  .vault-marker::after {
+    content: "";
+    position: absolute;
+    background: currentColor;
+  }
+  .vault-marker::before { top: 50%; left: 0; right: 0; height: 1px; }
+  .vault-marker::after { left: 50%; top: 0; bottom: 0; width: 1px; }
+  .vault-marker.m1 { transform: translate(-50%, -50%) translate(-300px, -200px); }
+  .vault-marker.m2 { transform: translate(-50%, -50%) translate(300px, -200px); }
+  .vault-marker.m3 { transform: translate(-50%, -50%) translate(-300px, 200px); }
+  .vault-marker.m4 { transform: translate(-50%, -50%) translate(300px, 200px); }
+
+  /* Technical labels around vault (Monolith metadata aesthetic) */
+  .vault-label {
+    position: absolute;
+    top: 50%; left: 50%;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 0.22em;
+    color: var(--cold-tungsten);
+    text-transform: uppercase;
+    white-space: nowrap;
+    line-height: 1.5;
+  }
+  .vault-label .v {
+    color: var(--vault-amber);
+    display: block;
+    font-size: 11px;
+  }
+  .vault-label.tl { transform: translate(-50%, -50%) translate(-310px, -260px); text-align: left; }
+  .vault-label.tr { transform: translate(-50%, -50%) translate(220px, -260px); text-align: right; }
+  .vault-label.bl { transform: translate(-50%, -50%) translate(-310px, 230px); text-align: left; }
+  .vault-label.br { transform: translate(-50%, -50%) translate(220px, 230px); text-align: right; }
+  .scroll-indicator {
+    position: absolute;
+    bottom: 40px; left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    color: var(--cold-tungsten);
+    font-size: 10px;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+  }
+  .scroll-indicator .line {
+    width: 1px; height: 50px;
+    background: linear-gradient(180deg, var(--vault-amber), transparent);
+    animation: scroll-line 2s ease-in-out infinite;
+  }
+  @keyframes scroll-line {
+    0%, 100% { opacity: 0.3; transform: scaleY(0.5); }
+    50% { opacity: 1; transform: scaleY(1); }
+  }
+
+  /* STATS */
+  .stats-strip {
+    border-top: 1px solid rgba(74, 78, 84, 0.3);
+    border-bottom: 1px solid rgba(74, 78, 84, 0.3);
+    padding: 70px 48px;
+    background: rgba(20, 22, 24, 0.5);
+    backdrop-filter: blur(20px);
+  }
+  .stats-grid {
+    max-width: 1440px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 50px;
+  }
+  .stat {
+    text-align: left;
+    padding-left: 24px;
+    border-left: 1px solid var(--vault-amber);
+    position: relative;
+    transition: transform 0.4s;
+  }
+  .stat:hover { transform: translateY(-6px); }
+  .stat .num {
+    font-family: 'Cormorant Garamond', serif;
+    font-size: 64px;
+    font-weight: 400;
+    color: var(--satin-frost);
+    line-height: 1;
+    margin-bottom: 12px;
+    background: linear-gradient(180deg, var(--satin-frost) 0%, var(--matte-alloy) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .stat .label {
+    font-size: 10px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--cold-tungsten);
+  }
+  .tech-marquee {
+    max-width: 1440px;
+    margin: 50px auto 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 32px;
+    padding-top: 36px;
+    border-top: 1px solid rgba(74, 78, 84, 0.3);
+  }
+  .tech-marquee span {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    color: var(--cold-tungsten);
+    transition: color 0.3s;
+  }
+  .tech-marquee span:hover { color: var(--vault-amber); }
+  .tech-marquee span::before {
+    content: "◆ ";
+    color: var(--vault-amber);
+    margin-right: 4px;
+  }
+
+  /* FEATURES */
+  .features-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 24px;
+    margin-top: 70px;
+    perspective: 1200px;
+  }
+  .feature {
+    background: linear-gradient(160deg, rgba(44,47,51,0.7) 0%, rgba(26,28,30,0.7) 100%);
+    backdrop-filter: blur(12px);
+    padding: 48px 38px;
+    border: 1px solid rgba(74, 78, 84, 0.5);
+    transition: all 0.5s cubic-bezier(.2,.8,.3,1);
+    position: relative;
+    overflow: hidden;
+    transform-style: preserve-3d;
+  }
+  .feature::before {
+    content: "";
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--vault-amber), transparent);
+    opacity: 0;
+    transition: opacity 0.4s;
+  }
+  .feature::after {
+    content: "";
+    position: absolute;
+    top: 0; right: 0;
+    width: 80px; height: 80px;
+    background: radial-gradient(circle at top right, rgba(200,133,10,0.15), transparent 70%);
+    opacity: 0;
+    transition: opacity 0.4s;
+  }
+  .feature:hover {
+    transform: translateY(-12px) rotateX(2deg);
+    border-color: rgba(200,133,10,0.5);
+    box-shadow: 0 30px 80px rgba(0,0,0,0.6), 0 0 0 1px rgba(200,133,10,0.2);
+  }
+  .feature:hover::before, .feature:hover::after { opacity: 1; }
+  .feature .num {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--vault-amber);
+    letter-spacing: 0.2em;
+    margin-bottom: 32px;
+    display: block;
+  }
+  .feature h3 { margin-bottom: 14px; font-size: 20px; }
+  .feature p { font-size: 14px; line-height: 1.65; }
+  .feature .icon {
+    width: 50px; height: 50px;
+    margin-bottom: 28px;
+    position: relative;
+  }
+  .feature .icon svg { width: 100%; height: 100%; stroke: var(--vault-amber); fill: none; stroke-width: 1.2; }
+
+  /* ARCHITECTURE */
+  .arch-section {
+    background: linear-gradient(180deg, transparent 0%, rgba(44,47,51,0.3) 50%, transparent 100%);
+  }
+  .arch-grid {
+    display: grid;
+    grid-template-columns: 1fr 1.3fr;
+    gap: 100px;
+    align-items: center;
+  }
+  .layers {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    perspective: 1500px;
+    transform-style: preserve-3d;
+  }
+  .layer {
+    background: linear-gradient(135deg, rgba(44,47,51,0.85) 0%, rgba(26,28,30,0.85) 100%);
+    backdrop-filter: blur(12px);
+    padding: 26px 32px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border: 1px solid rgba(74, 78, 84, 0.5);
+    transform-style: preserve-3d;
+    transition: all 0.5s cubic-bezier(.2,.8,.3,1);
+    position: relative;
+  }
+  .layer::before {
+    content: "";
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 3px;
+    background: var(--vault-amber);
+    transform: scaleY(0);
+    transform-origin: center;
+    transition: transform 0.4s;
+  }
+  .layer:hover {
+    transform: translateX(20px) translateZ(30px);
+    border-color: rgba(200,133,10,0.6);
+    box-shadow: -20px 20px 60px rgba(0,0,0,0.5);
+  }
+  .layer:hover::before { transform: scaleY(1); }
+  .layer-name {
+    font-size: 15px;
+    color: var(--satin-frost);
+    font-weight: 500;
+  }
+  .layer-tag {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--vault-amber);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    padding: 4px 10px;
+    border: 1px solid rgba(200,133,10,0.3);
+  }
+  .layer:nth-child(1) { transform: translateZ(0px); }
+  .layer:nth-child(2) { transform: translateZ(10px); }
+  .layer:nth-child(3) { transform: translateZ(20px); }
+  .layer:nth-child(4) { transform: translateZ(30px); }
+  .layer:nth-child(5) { transform: translateZ(40px); }
+  .layer:nth-child(6) { transform: translateZ(50px); }
+
+  /* SECURITY */
+  .security-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 24px;
+    margin-top: 70px;
+  }
+  .sec-card {
+    border: 1px solid rgba(74, 78, 84, 0.5);
+    padding: 38px 32px;
+    background: linear-gradient(160deg, rgba(44,47,51,0.6) 0%, rgba(26,28,30,0.6) 100%);
+    backdrop-filter: blur(12px);
+    position: relative;
+    transition: all 0.5s;
+    overflow: hidden;
+  }
+  .sec-card::before {
+    content: "";
+    position: absolute;
+    top: 0; left: 0;
+    width: 60px; height: 1px;
+    background: var(--vault-amber);
+    transition: width 0.4s;
+  }
+  .sec-card:hover { transform: translateY(-8px); border-color: rgba(200,133,10,0.5); }
+  .sec-card:hover::before { width: 100%; }
+  .sec-card .idx {
+    font-family: 'Cormorant Garamond', serif;
+    font-size: 36px;
+    font-style: italic;
+    color: var(--vault-amber);
+    margin-bottom: 14px;
+    display: block;
+  }
+  .sec-card h3 { font-size: 17px; }
+  .sec-card p { font-size: 13px; }
+
+  /* MODELS */
+  .models-table {
+    margin-top: 70px;
+    border: 1px solid rgba(74, 78, 84, 0.5);
+    background: rgba(20,22,24,0.5);
+    backdrop-filter: blur(12px);
+  }
+  .model-row {
+    display: grid;
+    grid-template-columns: 60px 1.5fr 1fr 1.2fr auto;
+    align-items: center;
+    padding: 24px 36px;
+    border-bottom: 1px solid rgba(74, 78, 84, 0.4);
+    transition: all 0.3s;
+    gap: 24px;
+  }
+  .model-row:last-child { border-bottom: none; }
+  .model-row:hover {
+    background: linear-gradient(90deg, rgba(200,133,10,0.05), transparent);
+    padding-left: 48px;
+  }
+  .model-row.head {
+    background: rgba(14, 15, 17, 0.5);
+    font-size: 10px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--cold-tungsten);
+    padding: 18px 36px;
+  }
+  .model-row.head:hover { padding-left: 36px; }
+  .model-row .ix {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--vault-amber);
+  }
+  .model-row .name {
+    font-weight: 500;
+    color: var(--satin-frost);
+    font-size: 16px;
+  }
+  .model-row .prov {
+    font-size: 12px;
+    color: var(--matte-alloy);
+    letter-spacing: 0.05em;
+  }
+  .model-row .cmd {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--cold-tungsten);
+  }
+  .badge {
+    font-size: 9px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    padding: 5px 11px;
+    border: 1px solid var(--vault-amber);
+    color: var(--vault-amber);
+    background: rgba(200,133,10,0.05);
+  }
+
+  /* QUICK START */
+  .qs-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 24px;
+    margin-top: 70px;
+  }
+  .step {
+    border: 1px solid rgba(74, 78, 84, 0.5);
+    padding: 44px 36px;
+    background: linear-gradient(160deg, rgba(44,47,51,0.6) 0%, rgba(26,28,30,0.6) 100%);
+    backdrop-filter: blur(12px);
+    position: relative;
+    transition: all 0.5s;
+  }
+  .step:hover {
+    transform: translateY(-10px);
+    border-color: rgba(200,133,10,0.5);
+    box-shadow: 0 30px 80px rgba(0,0,0,0.5);
+  }
+  .step .step-num {
+    font-family: 'Cormorant Garamond', serif;
+    font-size: 84px;
+    font-weight: 300;
+    font-style: italic;
+    color: var(--vault-amber);
+    line-height: 1;
+    margin-bottom: 22px;
+    display: block;
+    background: linear-gradient(135deg, var(--vault-amber) 0%, var(--status-gold) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .step h3 { margin-bottom: 12px; }
+  .step code {
+    display: block;
+    margin-top: 22px;
+    padding: 14px 16px;
+    background: rgba(14, 15, 17, 0.7);
+    border: 1px solid rgba(74, 78, 84, 0.5);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--status-gold);
+    border-left: 2px solid var(--vault-amber);
+  }
+
+  /* CTA */
+  .cta-section {
+    text-align: center;
+    border-top: 1px solid rgba(74, 78, 84, 0.3);
+    background: radial-gradient(ellipse at center, rgba(200,133,10,0.12) 0%, transparent 60%);
+    overflow: hidden;
+    position: relative;
+  }
+  .cta-section::before {
+    content: "";
+    position: absolute;
+    top: 50%; left: 50%;
+    width: 800px; height: 800px;
+    transform: translate(-50%, -50%);
+    background: radial-gradient(circle, rgba(200,133,10,0.08) 0%, transparent 60%);
+    pointer-events: none;
+  }
+  .cta-section h2 { margin-bottom: 28px; position: relative; }
+  .cta-buttons { display: flex; gap: 22px; justify-content: center; margin-top: 50px; position: relative; }
+  .cta-section .lede { margin: 0 auto; }
 
   /* FOOTER */
-  footer { border-top: 1px solid rgba(74,78,84,.3); padding: 40px 48px; }
-  .foot-bottom { max-width: 1440px; margin: 0 auto; display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; font-size: 12px; color: var(--cold-tungsten); }
-  .foot-bottom .tagline { color: var(--matte-alloy); font-style: italic; font-family: 'Cormorant Garamond', serif; }
+  footer {
+    background: rgba(14, 15, 17, 0.85);
+    backdrop-filter: blur(20px);
+    border-top: 1px solid rgba(74, 78, 84, 0.5);
+    padding: 90px 48px 50px;
+  }
+  .foot-grid {
+    max-width: 1440px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 2fr 1fr 1fr 1fr;
+    gap: 70px;
+    padding-bottom: 60px;
+    border-bottom: 1px solid rgba(74, 78, 84, 0.4);
+  }
+  .foot-brand .logo { display: inline-flex; margin-bottom: 24px; }
+  .foot-brand p { max-width: 340px; font-size: 13px; line-height: 1.6; }
+  .foot-col h4 {
+    font-size: 10px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--vault-amber);
+    margin-bottom: 24px;
+  }
+  .foot-col a {
+    display: block;
+    color: var(--matte-alloy);
+    text-decoration: none;
+    font-size: 13px;
+    margin-bottom: 14px;
+    transition: all 0.3s;
+  }
+  .foot-col a:hover { color: var(--vault-amber); padding-left: 8px; }
+  .foot-bottom {
+    max-width: 1440px;
+    margin: 36px auto 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--cold-tungsten);
+  }
+  .foot-bottom .tagline {
+    font-family: 'Cormorant Garamond', serif;
+    font-size: 14px;
+    letter-spacing: 0.2em;
+    color: var(--matte-alloy);
+    text-transform: none;
+    font-style: italic;
+  }
 
-  @media (max-width: 720px) {
+  /* REVEAL */
+  .reveal {
+    opacity: 0;
+    transform: translateY(40px);
+    transition: opacity 0.9s cubic-bezier(.2,.8,.3,1), transform 0.9s cubic-bezier(.2,.8,.3,1);
+  }
+  .reveal.visible { opacity: 1; transform: translateY(0); }
+
+  /* ============================================
+     PREMIUM ENHANCEMENTS
+     Inspired by Monolith Studio + Framer
+     ============================================ */
+
+  /* Logo meta (live clock) */
+  .logo-meta {
+    display: flex;
+    flex-direction: column;
+    margin-left: 18px;
+    padding-left: 18px;
+    border-left: 1px solid rgba(74,78,84,0.6);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 0.18em;
+    line-height: 1.4;
+    text-transform: uppercase;
+    color: var(--cold-tungsten);
+    font-weight: 400;
+  }
+  .logo-meta-time { color: var(--vault-amber); font-variant-numeric: tabular-nums; }
+  .logo-meta-loc { opacity: 0.7; }
+
+  /* Nav right group */
+  .nav-right { display: flex; align-items: center; gap: 18px; }
+  .status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 0.22em;
+    color: var(--matte-alloy);
+    padding: 7px 14px;
+    border: 1px solid rgba(111, 207, 151, 0.3);
+    background: rgba(111, 207, 151, 0.05);
+    border-radius: 100px;
+  }
+  .status-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: #6FCF97;
+    box-shadow: 0 0 10px #6FCF97;
+    animation: pulse-status 2s ease-in-out infinite;
+  }
+  @keyframes pulse-status {
+    0%, 100% { transform: scale(1); opacity: 1; }
+    50% { transform: scale(1.15); opacity: 0.6; }
+  }
+
+  /* Scroll progress bar */
+  .scroll-progress {
+    position: fixed;
+    top: 0; left: 0;
+    height: 2px;
+    width: 0%;
+    background: linear-gradient(90deg, var(--vault-amber), var(--status-gold));
+    box-shadow: 0 0 12px rgba(200,133,10,0.6);
+    z-index: 9999;
+    transition: width 0.05s linear;
+  }
+
+  /* Cursor spotlight */
+  .cursor-spotlight {
+    position: fixed;
+    top: 0; left: 0;
+    width: 600px; height: 600px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(200,133,10,0.07) 0%, transparent 60%);
+    pointer-events: none;
+    z-index: 1;
+    transform: translate(-50%, -50%);
+    transition: opacity 0.4s;
+    mix-blend-mode: screen;
+  }
+
+  /* Sidenote (Monolith-inspired) */
+  .sidenote {
+    position: fixed;
+    top: 50%;
+    right: 36px;
+    transform: translateY(-50%);
+    max-width: 280px;
+    padding: 22px 24px 22px 26px;
+    background: rgba(14, 15, 17, 0.92);
+    backdrop-filter: blur(20px) saturate(140%);
+    border: 1px solid rgba(74, 78, 84, 0.5);
+    border-radius: 14px;
+    z-index: 90;
+    opacity: 0;
+    transform: translate(40px, -50%);
+    transition: opacity 0.7s cubic-bezier(.2,.8,.3,1), transform 0.7s cubic-bezier(.2,.8,.3,1);
+    box-shadow: 0 30px 80px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(200, 133, 10, 0.08);
+  }
+  .sidenote.show {
+    opacity: 1;
+    transform: translate(0, -50%);
+  }
+  .sidenote-close {
+    position: absolute;
+    top: 10px; right: 12px;
+    background: none;
+    border: none;
+    color: var(--cold-tungsten);
+    font-size: 18px;
+    cursor: none;
+    line-height: 1;
+    transition: color 0.3s;
+  }
+  .sidenote-close:hover { color: var(--vault-amber); }
+  .sidenote-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 0.24em;
+    text-transform: uppercase;
+    color: var(--vault-amber);
+    margin-bottom: 8px;
+  }
+  .sidenote-body {
+    font-size: 12px;
+    line-height: 1.55;
+    color: var(--matte-alloy);
+  }
+
+  /* Bottom status bar */
+  .status-bar {
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    z-index: 95;
+    padding: 10px 32px;
+    background: rgba(14, 15, 17, 0.85);
+    backdrop-filter: blur(20px);
+    border-top: 1px solid rgba(74, 78, 84, 0.4);
+    display: flex;
+    align-items: center;
+    gap: 26px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 0.18em;
+    color: var(--cold-tungsten);
+    text-transform: uppercase;
+  }
+  .status-bar-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font-variant-numeric: tabular-nums;
+  }
+  .status-bar-item:nth-child(2),
+  .status-bar-item:nth-child(3),
+  .status-bar-item:nth-child(4) { color: var(--matte-alloy); }
+  .status-bar-spacer { flex: 1; }
+  body { padding-bottom: 38px; }
+
+  /* Hero h1 character reveal */
+  .hero-h1 { perspective: 800px; }
+  .hero-h1 .line {
+    display: block;
+    overflow: hidden;
+  }
+  .hero-h1 .word {
+    display: inline-block;
+    transform: translateY(110%);
+    opacity: 0;
+    transition: opacity 1s cubic-bezier(.2,.8,.3,1), transform 1s cubic-bezier(.2,.8,.3,1);
+  }
+  .hero-h1 .word.in {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  .hero-h1 .accent-word {
+    color: var(--vault-amber);
+    font-style: italic;
+    background: linear-gradient(135deg, var(--vault-amber) 0%, var(--status-gold) 50%, var(--vault-amber) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    background-size: 200% auto;
+    animation: shimmer 4s linear infinite;
+  }
+
+  /* Pill mono variant */
+  .pill-mono {
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--vault-amber) !important;
+    border-color: rgba(200,133,10,0.4) !important;
+  }
+
+  /* Marquee strip */
+  .marquee-strip {
+    overflow: hidden;
+    border-top: 1px solid rgba(74, 78, 84, 0.3);
+    border-bottom: 1px solid rgba(74, 78, 84, 0.3);
+    padding: 22px 0;
+    background: rgba(14, 15, 17, 0.7);
+    backdrop-filter: blur(20px);
+    position: relative;
+    z-index: 3;
+  }
+  .marquee-strip::before,
+  .marquee-strip::after {
+    content: "";
+    position: absolute;
+    top: 0; bottom: 0;
+    width: 120px;
+    pointer-events: none;
+    z-index: 2;
+  }
+  .marquee-strip::before { left: 0; background: linear-gradient(90deg, #0E0F11, transparent); }
+  .marquee-strip::after { right: 0; background: linear-gradient(-90deg, #0E0F11, transparent); }
+  .marquee-track {
+    display: flex;
+    align-items: center;
+    gap: 50px;
+    width: max-content;
+    animation: marquee-scroll 50s linear infinite;
+  }
+  .marquee-strip:hover .marquee-track { animation-play-state: paused; }
+  @keyframes marquee-scroll {
+    0%   { transform: translateX(0); }
+    100% { transform: translateX(-50%); }
+  }
+  .marquee-item {
+    font-family: 'Cormorant Garamond', serif;
+    font-size: 38px;
+    font-weight: 400;
+    font-style: italic;
+    color: var(--satin-frost);
+    letter-spacing: -0.01em;
+    white-space: nowrap;
+    flex-shrink: 0;
+    transition: color 0.3s, transform 0.3s;
+  }
+  .marquee-item:hover {
+    color: var(--vault-amber);
+    transform: scale(1.04);
+  }
+  .marquee-divider {
+    color: var(--vault-amber);
+    font-size: 14px;
+    flex-shrink: 0;
+    opacity: 0.6;
+  }
+
+  /* Counting numbers */
+  .num.count { font-variant-numeric: tabular-nums; }
+
+  /* Magnetic button class hint */
+  [data-magnetic] {
+    transition: transform 0.4s cubic-bezier(.2,.8,.3,1), background 0.3s, color 0.3s, box-shadow 0.4s;
+    will-change: transform;
+  }
+
+  /* Section divider line that draws on scroll */
+  .section-divider {
+    position: relative;
+    height: 1px;
+    margin: 0 48px;
+    overflow: hidden;
+  }
+  .section-divider::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, transparent, rgba(200,133,10,0.5), transparent);
+    transform: translateX(-100%);
+    transition: transform 1.4s cubic-bezier(.2,.8,.3,1);
+  }
+  .section-divider.in::after { transform: translateX(0); }
+
+  /* Brand strip (top editorial bar) */
+  .brand-strip {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 99;
+    padding: 8px 32px;
+    background: rgba(11, 12, 14, 0.92);
+    backdrop-filter: blur(20px);
+    border-bottom: 1px solid rgba(74, 78, 84, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 0.22em;
+    color: var(--cold-tungsten);
+    text-transform: uppercase;
+  }
+  .brand-strip .bs-amber { color: var(--vault-amber); margin-left: 8px; }
+  .brand-strip .bs-center { color: var(--matte-alloy); }
+  body { padding-top: 30px; }
+  header { top: 30px !important; }
+
+  /* Color palette section (brand-board inspired) */
+  .palette-section {
+    padding: 100px 48px;
+    border-top: 1px solid rgba(74, 78, 84, 0.3);
+    border-bottom: 1px solid rgba(74, 78, 84, 0.3);
+    background: rgba(20, 22, 24, 0.5);
+    backdrop-filter: blur(12px);
+  }
+  .palette-grid {
+    max-width: 1440px;
+    margin: 70px auto 0;
+    display: grid;
+    grid-template-columns: repeat(8, 1fr);
+    gap: 8px;
+  }
+  .swatch {
+    aspect-ratio: 3/4;
+    border: 1px solid rgba(74,78,84,0.4);
+    padding: 16px 14px;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    transition: all 0.5s var(--ease-power);
+    position: relative;
+    overflow: hidden;
+  }
+  .swatch::before {
+    content: "";
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--vault-amber), transparent);
+    opacity: 0;
+    transition: opacity 0.4s;
+  }
+  .swatch:hover { transform: translateY(-6px); border-color: rgba(200,133,10,0.5); }
+  .swatch:hover::before { opacity: 1; }
+  .swatch .name {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--matte-alloy);
+    margin-bottom: 4px;
+  }
+  .swatch .hex {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--vault-amber);
+  }
+  .swatch.s1 { background: var(--blast-steel); }
+  .swatch.s2 { background: var(--forged-iron); }
+  .swatch.s3 { background: var(--brushed-titanium); }
+  .swatch.s4 { background: var(--cold-tungsten); }
+  .swatch.s5 { background: var(--matte-alloy); }
+  .swatch.s5 .name, .swatch.s6 .name { color: var(--blast-steel); }
+  .swatch.s5 .hex, .swatch.s6 .hex { color: var(--forged-iron); }
+  .swatch.s6 { background: var(--satin-frost); }
+  .swatch.s7 { background: var(--vault-amber); }
+  .swatch.s7 .name, .swatch.s8 .name { color: var(--blast-steel); font-weight: 600; }
+  .swatch.s7 .hex, .swatch.s8 .hex { color: var(--blast-steel); }
+  .swatch.s8 { background: var(--status-gold); }
+
+  /* Refined hero meta layout */
+  .hero-meta { z-index: 4; position: relative; }
+
+  /* Make sure all content stays above fixed vault */
+  main, header, footer, .marquee-strip, .stats-strip { position: relative; z-index: 4; }
+  section { position: relative; z-index: 4; }
+
+  /* Hero overlay for better text readability */
+  .hero::before {
+    content: "";
+    position: absolute;
+    top: 0; left: 0;
+    width: 60%;
+    height: 100%;
+    background: linear-gradient(90deg, var(--bg-void) 0%, rgba(11,12,14,0.85) 50%, transparent 100%);
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  /* Fade vault as you scroll past hero */
+  .vault-stage { transition: opacity 0.8s var(--ease-out); }
+  .vault-stage.dim { opacity: 0.18; }
+
+  /* Hide custom UI on small screens */
+  @media (max-width: 1024px) {
+    .sidenote { display: none; }
+    .status-bar { display: none; }
+    body { padding-bottom: 0; padding-top: 30px; }
+    .logo-meta { display: none; }
+    .vault-stage { display: none; }
+    .hero-grid { max-width: 100%; }
+    .hero::before { display: none; }
+    .palette-grid { grid-template-columns: repeat(4, 1fr); }
+    .brand-strip .bs-center { display: none; }
+  }
+  @media (max-width: 960px) {
+    .nav-right .status-pill { display: none; }
+    .marquee-item { font-size: 26px; }
+    .cursor-spotlight { display: none; }
+    .brand-strip { padding: 8px 16px; font-size: 8px; }
+    .brand-strip .bs-right { display: none; }
+    .palette-grid { grid-template-columns: repeat(2, 1fr); }
+  }
+
+  /* RESPONSIVE */
+  @media (max-width: 1024px) {
     body { cursor: auto; }
-    .btn, .field input { cursor: auto; }
     .cursor, .cursor-ring { display: none; }
-    .nav-links { display: none; }
+    .btn { cursor: pointer; }
+  }
+  @media (max-width: 960px) {
     .nav { padding: 0 24px; }
-    .signup-card { padding: 32px 24px; }
-    .signup-card h1 { font-size: 32px; }
-    footer { padding: 32px 24px; }
+    .nav-links { display: none; }
+    section { padding: 90px 24px; }
+    .hero { padding-top: 130px; }
+    .hero-grid { grid-template-columns: 1fr; gap: 60px; }
+    .float-object { height: 400px; }
+    .float-object .core { width: 260px; height: 260px; }
+    .ring-1 { width: 320px; height: 320px; }
+    .ring-2 { width: 360px; height: 360px; }
+    .ring-3 { width: 400px; height: 400px; }
+    @keyframes orbit-a { from { transform: rotate(0deg) translateX(160px) rotate(0deg); } to { transform: rotate(360deg) translateX(160px) rotate(-360deg); } }
+    @keyframes orbit-b { from { transform: rotate(120deg) translateX(180px) rotate(-120deg); } to { transform: rotate(480deg) translateX(180px) rotate(-480deg); } }
+    @keyframes orbit-c { from { transform: rotate(240deg) translateX(200px) rotate(-240deg); } to { transform: rotate(600deg) translateX(200px) rotate(-600deg); } }
+    .stats-grid { grid-template-columns: repeat(2, 1fr); gap: 36px; }
+    .stat .num { font-size: 48px; }
+    .features-grid { grid-template-columns: 1fr; }
+    .arch-grid { grid-template-columns: 1fr; gap: 60px; }
+    .security-grid { grid-template-columns: 1fr; }
+    .qs-grid { grid-template-columns: 1fr; }
+    .model-row { grid-template-columns: 1fr; gap: 8px; padding: 22px; }
+    .model-row.head { display: none; }
+    .foot-grid { grid-template-columns: 1fr 1fr; gap: 40px; }
+    .foot-bottom { flex-direction: column; gap: 16px; text-align: center; }
   }
 </style>
 </head>
 <body>
-  <div class="cursor" id="cursor"></div>
-  <div class="cursor-ring" id="cursorRing"></div>
-  <div class="glow"></div>
-  <div class="noise"></div>
-  <div class="grid-overlay"></div>
 
-  <header>
-    <div class="nav">
-      <a href="/" class="logo"><span class="logo-mark"></span>DIFFRACT</a>
-      <nav class="nav-links">
-        <a href="/#features">Features</a>
-        <a href="/#architecture">Architecture</a>
-        <a href="/#security">Security</a>
-      </nav>
-      <a href="https://calendly.com/diffraction-in/30min" target="_blank" rel="noopener" class="btn" data-magnetic>Talk to us</a>
+<div class="cursor"></div>
+<div class="cursor-ring"></div>
+
+<canvas id="bg-canvas"></canvas>
+<div class="grid-overlay"></div>
+<div class="noise"></div>
+
+<!-- VAULT 3D — Fixed to viewport, content scrolls over it (Monolith-style) -->
+<div class="vault-stage fixed" id="vaultStage">
+  <div class="vault-3d" id="vault3d">
+    <div class="vault-ring r3"></div>
+    <div class="vault-ring r2"></div>
+    <div class="vault-ring r1"></div>
+    <div class="vault-cube">
+      <div class="cube-face cube-front"></div>
+      <div class="cube-face cube-back"></div>
+      <div class="cube-face cube-right"></div>
+      <div class="cube-face cube-left"></div>
+      <div class="cube-face cube-top"></div>
+      <div class="cube-face cube-bottom"></div>
     </div>
-  </header>
+    <div class="vault-emblem"></div>
+    <div class="vault-marker m1"></div>
+    <div class="vault-marker m2"></div>
+    <div class="vault-marker m3"></div>
+    <div class="vault-marker m4"></div>
+    <div class="vault-label tl"><span class="v">SANDBOX</span>ISOLATED NETNS</div>
+    <div class="vault-label tr"><span class="v">EGRESS</span>DENY-BY-DEFAULT</div>
+    <div class="vault-label bl"><span class="v">CREDENTIALS</span>AGENT-BLIND</div>
+    <div class="vault-label br"><span class="v">RUNTIME 1.0</span>OPENSHELL</div>
+  </div>
+</div>
 
-  <main>
-    <div class="signup-wrap">
-      <div class="signup-card">
-        <!-- STATE 1 · NAME + SUBSCRIBE (name-before-pay → auto-provisioned) -->
-        <form id="subscribeState" novalidate>
-          <div class="eyebrow">Get Started</div>
-          <h1>Start your Diffract workspace</h1>
-          <p class="lede">Your own isolated Diffract instance — a dedicated, kernel-isolated AI agent runtime on a private <b style="color:var(--satin-frost);font-weight:500">.diffraction.in</b> URL. Pick your name, then subscribe — your workspace is provisioned automatically.</p>
+<div id="smooth-wrapper">
+<div id="smooth-content">
 
-          <div class="field">
-            <label for="workspace">Workspace name</label>
-            <input id="workspace" name="workspace" type="text" autocomplete="organization" placeholder="acme" spellcheck="false" autofocus />
-            <div class="preview"><span class="dot" id="previewDot"></span><span id="previewUrl"><b>your-workspace</b>.diffraction.in</span></div>
-            <div class="hint" id="workspaceHint"></div>
-          </div>
+<header>
+  <div class="nav">
+    <a href="#top" class="logo" data-scroll-top>
+      <span class="logo-mark"></span>
+      DIFFRACT
+      <span class="logo-meta">
+        <span class="logo-meta-time" id="navClock">00:00:00</span>
+        <span class="logo-meta-loc">UTC · v1.0</span>
+      </span>
+    </a>
+    <nav class="nav-links">
+      <a href="#features">Features</a>
+      <a href="#architecture">Architecture</a>
+      <a href="#models">Models</a>
+      <a href="#security">Security</a>
+      <a href="#start">Get Started</a>
+    </nav>
+    <div class="nav-right">
+      <span class="status-pill"><span class="status-dot"></span>SYSTEM&nbsp;OPERATIONAL</span>
+      <a href="https://calendly.com/diffraction-in/30min" target="_blank" rel="noopener" class="btn btn-primary" data-magnetic>Schedule a Meeting</a>
+    </div>
+  </div>
+</header>
 
-          <div class="field">
-            <label for="email">Work email</label>
-            <input id="email" name="email" type="email" autocomplete="email" placeholder="you@acme.com" />
-            <div class="hint" id="emailHint">Where we'll send your login once it's live.</div>
-          </div>
+<!-- Scroll Progress Indicator -->
+<div class="scroll-progress" id="scrollProgress"></div>
 
-          <div class="preview" style="margin:6px 0 8px;"><span class="dot"></span><span>Diffract subscription — <b>₹2,000</b>/month, cancel anytime</span></div>
+<!-- Cursor Spotlight -->
+<div class="cursor-spotlight" id="cursorSpotlight"></div>
 
-          <div class="submit-row">
-            <button type="submit" class="btn btn-primary" id="subscribeBtn" disabled>Subscribe — ₹2,000/mo →</button>
-          </div>
-          <div class="hint error" id="subError" style="text-align:center;margin-top:14px;"></div>
+<!-- Sidenote (Monolith-inspired floating tooltip) -->
+<aside class="sidenote" id="sidenote">
+  <button class="sidenote-close" aria-label="Close">×</button>
+  <div class="sidenote-label">Sidenote</div>
+  <div class="sidenote-body">
+    Every agent Diffract deploys runs in its own kernel-isolated sandbox — it can only reach the hosts you approve, and never sees your credentials. Hover the architecture layers to watch a request cross each boundary.
+  </div>
+</aside>
 
-          <p class="fineprint">
-            Secure checkout by Dodo Payments — your workspace is provisioned automatically right after you pay.<br/>
-            Prefer a guided setup? <a href="https://calendly.com/diffraction-in/30min" target="_blank" rel="noopener">Schedule a meeting</a>.
-          </p>
-        </form>
+<!-- Bottom Status Bar -->
+<div class="status-bar">
+  <span class="status-bar-item"><span class="status-dot"></span>RUNTIME&nbsp;ONLINE</span>
+  <span class="status-bar-item">CPU&nbsp;<span id="cpuTick">04</span>%</span>
+  <span class="status-bar-item">MEM&nbsp;<span id="memTick">31</span>%</span>
+  <span class="status-bar-item">LAT&nbsp;<span id="latTick">12</span>ms</span>
+  <span class="status-bar-item status-bar-spacer"></span>
+  <span class="status-bar-item">DIFFRACT&nbsp;v1.0</span>
+  <span class="status-bar-item">SCROLL&nbsp;<span id="scrollPct">0</span>%</span>
+</div>
 
-        <!-- STATE 3 · DONE -->
-        <div class="success" id="successState">
-          <div class="check"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></div>
-          <h2>Workspace reserved</h2>
-          <p>Your subscription is active. We're provisioning <span class="url" id="successUrl">acme.diffraction.in</span></p>
-          <p>You'll get an email with your login the moment it's live — usually a few minutes.</p>
-          <p style="margin-top:24px;"><a href="/" class="btn btn-ghost" style="border-color:var(--brushed-titanium);color:var(--satin-frost);">Back to home</a></p>
+<!-- Brand System Header (Monolith editorial top strip) -->
+<div class="brand-strip">
+  <span class="bs-left">DIFFRACT — SECURE AGENT RUNTIME <span class="bs-amber">v1.0</span></span>
+  <span class="bs-center">AGENTS YOUR SECURITY TEAM CAN APPROVE</span>
+  <span class="bs-right">KERNEL-ISOLATED · POLICY-CONTROLLED · AUDITABLE</span>
+</div>
+
+<main>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="container">
+    <div class="hero-grid">
+      <div>
+        <div class="hero-meta reveal">
+          <span class="pill"><span class="dot"></span>Runtime v1.0 — Stable</span>
+          <span class="pill">Built on NVIDIA OpenShell</span>
+          <span class="pill pill-mono">One-command deploy</span>
+        </div>
+        <h1 class="hero-h1 split-text">
+          <span class="line"><span class="word">Autonomous</span> <span class="word accent-word">AI&nbsp;agents</span></span>
+          <span class="line"><span class="word">your</span> <span class="word">security</span> <span class="word">team</span></span>
+          <span class="line"><span class="word">can</span> <span class="word">actually</span> <span class="word">approve.</span></span>
+        </h1>
+        <p class="lede reveal">Diffract runs every agent inside a kernel-isolated sandbox — deny-by-default egress, credentials it can never read, and a complete audit trail. Any model, any provider, hot-swapped at runtime. Deploy it in one command, self-hosted or fully managed.</p>
+        <div class="hero-cta reveal">
+          <a href="https://calendly.com/diffraction-in/30min" target="_blank" rel="noopener" class="btn btn-primary" data-magnetic>Schedule a Meeting</a>
+          <a href="#architecture" class="btn btn-ghost" data-magnetic>See how it works</a>
         </div>
       </div>
-    </div>
-  </main>
 
-  <footer>
-    <div class="foot-bottom">
-      <span>© 2026 Diffract — Apache 2.0</span>
-      <span class="tagline">Infrastructure that cannot be breached</span>
-      <span>Built on OpenShell + OpenClaw</span>
     </div>
-  </footer>
+  </div>
+
+  <div class="scroll-indicator">
+    <span>Scroll</span>
+    <div class="line"></div>
+  </div>
+</section>
+
+<!-- HORIZONTAL MARQUEE TICKER -->
+<div class="marquee-strip" aria-hidden="true">
+  <div class="marquee-track">
+    <span class="marquee-item">KERNEL-ISOLATED SANDBOX</span>
+    <span class="marquee-divider">◆</span>
+    <span class="marquee-item">DENY-BY-DEFAULT EGRESS</span>
+    <span class="marquee-divider">◆</span>
+    <span class="marquee-item">AGENT-BLIND CREDENTIALS</span>
+    <span class="marquee-divider">◆</span>
+    <span class="marquee-item">ANY MODEL · ANY PROVIDER</span>
+    <span class="marquee-divider">◆</span>
+    <span class="marquee-item">FULL AUDIT TRAIL</span>
+    <span class="marquee-divider">◆</span>
+    <span class="marquee-item">ONE-COMMAND DEPLOY</span>
+    <span class="marquee-divider">◆</span>
+    <span class="marquee-item">KERNEL-ISOLATED SANDBOX</span>
+    <span class="marquee-divider">◆</span>
+    <span class="marquee-item">DENY-BY-DEFAULT EGRESS</span>
+    <span class="marquee-divider">◆</span>
+    <span class="marquee-item">AGENT-BLIND CREDENTIALS</span>
+    <span class="marquee-divider">◆</span>
+    <span class="marquee-item">ANY MODEL · ANY PROVIDER</span>
+    <span class="marquee-divider">◆</span>
+    <span class="marquee-item">FULL AUDIT TRAIL</span>
+    <span class="marquee-divider">◆</span>
+    <span class="marquee-item">ONE-COMMAND DEPLOY</span>
+    <span class="marquee-divider">◆</span>
+  </div>
+</div>
+
+<!-- STATS -->
+<div class="stats-strip">
+  <div class="stats-grid">
+    <div class="stat reveal"><div class="num count" data-target="15" data-suffix="+">00</div><div class="label">Model Providers</div></div>
+    <div class="stat reveal"><div class="num count" data-target="1" data-pad="2">00</div><div class="label">Command to Deploy</div></div>
+    <div class="stat reveal"><div class="num count" data-target="0" data-pad="2">00</div><div class="label">Secrets the Agent Can Read</div></div>
+    <div class="stat reveal"><div class="num count" data-target="20" data-suffix="+">00</div><div class="label">Tool &amp; Channel Integrations</div></div>
+  </div>
+  <div class="tech-marquee reveal">
+    <span>NVIDIA OpenShell</span>
+    <span>Landlock LSM</span>
+    <span>seccomp-BPF</span>
+    <span>Network Namespaces</span>
+    <span>Caddy HTTPS</span>
+    <span>Anthropic Claude</span>
+    <span>NVIDIA Nemotron</span>
+    <span>OpenAI-compatible</span>
+  </div>
+</div>
+
+<!-- FEATURES -->
+<section id="features">
+  <div class="container">
+    <div class="reveal">
+      <span class="section-label">Capabilities</span>
+      <h2>Built for <span class="accent">zero-trust</span><br>autonomy.</h2>
+      <p class="lede">Six pillars that turn unpredictable agents into auditable infrastructure.</p>
+    </div>
+
+    <div class="features-grid">
+      <div class="feature reveal">
+        <div class="icon"><svg viewBox="0 0 50 50"><rect x="8" y="8" width="34" height="34" rx="2"/><rect x="16" y="16" width="18" height="18" rx="1"/><circle cx="25" cy="25" r="3" fill="currentColor"/></svg></div>
+        <span class="num">01 / ISOLATION</span>
+        <h3>Kernel-Level Sandbox</h3>
+        <p>Every agent runs in its own sandbox built on NVIDIA OpenShell — network namespaces, Landlock and seccomp enforce isolation at the syscall boundary. It can't touch the host, your network, or another workload.</p>
+      </div>
+      <div class="feature reveal">
+        <div class="icon"><svg viewBox="0 0 50 50"><circle cx="12" cy="25" r="6"/><circle cx="38" cy="12" r="6"/><circle cx="38" cy="38" r="6"/><line x1="18" y1="25" x2="32" y2="12"/><line x1="18" y1="25" x2="32" y2="38"/></svg></div>
+        <span class="num">02 / EGRESS</span>
+        <h3>Deny-by-Default Networking</h3>
+        <p>The sandbox's only way out is a policy proxy. Your agent reaches the hosts you approve — and nothing else. Every connection is inspected, logged, and revocable in seconds.</p>
+      </div>
+      <div class="feature reveal">
+        <div class="icon"><svg viewBox="0 0 50 50"><path d="M10 12 L40 12 L40 38 L10 38 Z"/><line x1="16" y1="20" x2="34" y2="20"/><line x1="16" y1="26" x2="28" y2="26"/><line x1="16" y1="32" x2="32" y2="32"/></svg></div>
+        <span class="num">03 / SECRETS</span>
+        <h3>Credentials the Agent Can't Read</h3>
+        <p>API keys and tokens are injected at the boundary, never into the agent's reach. Even a fully compromised agent has no secret to steal and nothing to exfiltrate.</p>
+      </div>
+      <div class="feature reveal">
+        <div class="icon"><svg viewBox="0 0 50 50"><path d="M8 14 L42 14 L42 32 L28 32 L20 40 L20 32 L8 32 Z"/><circle cx="18" cy="23" r="1.5" fill="currentColor"/><circle cx="25" cy="23" r="1.5" fill="currentColor"/><circle cx="32" cy="23" r="1.5" fill="currentColor"/></svg></div>
+        <span class="num">04 / TOOLS</span>
+        <h3>Connect Your Stack, Safely</h3>
+        <p>Give the agent your CLIs, CRMs, and internal APIs through scoped, credential-isolated connections. It acts on your behalf — and reaches Slack, Telegram, Discord and 20+ channels — without ever holding the key.</p>
+      </div>
+      <div class="feature reveal">
+        <div class="icon"><svg viewBox="0 0 50 50"><circle cx="25" cy="25" r="16"/><path d="M25 14 L25 25 L33 30"/></svg></div>
+        <span class="num">05 / OPS</span>
+        <h3>Built to Run in Production</h3>
+        <p>Watchdog supervision, resource caps, and self-healing recovery, plus a full dashboard for sessions, logs and policy. Operable 24/7 by the team that owns it.</p>
+      </div>
+      <div class="feature reveal">
+        <div class="icon"><svg viewBox="0 0 50 50"><polygon points="25,8 42,17 42,33 25,42 8,33 8,17"/><polygon points="25,18 33,22 33,30 25,34 17,30 17,22"/></svg></div>
+        <span class="num">06 / MODELS</span>
+        <h3>Any Model, No Lock-In</h3>
+        <p>Hot-swap Claude, GPT, Gemini, Llama or NVIDIA Nemotron at runtime — no restarts, no SDK churn. Bring any OpenAI-compatible provider, and your own keys.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ARCHITECTURE -->
+<section id="architecture" class="arch-section">
+  <div class="container">
+    <div class="arch-grid">
+      <div class="reveal">
+        <span class="section-label">Architecture</span>
+        <h2>Six layers,<br><span class="accent">zero trust.</span></h2>
+        <p class="lede">Every request crosses a defined boundary. Every boundary enforces policy. From the dashboard down to the kernel, every action an agent takes is logged and reviewable.</p>
+        <div style="margin-top: 40px;">
+          <a href="#security" class="btn">Explore the security model</a>
+        </div>
+      </div>
+
+      <div class="layers reveal">
+        <div class="layer"><span class="layer-name">Diffract — Dashboard &amp; CLI</span><span class="layer-tag">TypeScript</span></div>
+        <div class="layer"><span class="layer-name">Caddy — Reverse Proxy</span><span class="layer-tag">HTTPS · TLS</span></div>
+        <div class="layer"><span class="layer-name">NemoClaw — Orchestration</span><span class="layer-tag">Provisioning</span></div>
+        <div class="layer"><span class="layer-name">OpenShell — Sandbox Runtime</span><span class="layer-tag">NVIDIA</span></div>
+        <div class="layer"><span class="layer-name">Egress Policy Proxy</span><span class="layer-tag">netns</span></div>
+        <div class="layer"><span class="layer-name">Diffract Agent — Isolated</span><span class="layer-tag">Landlock · seccomp</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- SECURITY -->
+<section id="security">
+  <div class="container">
+    <div class="reveal">
+      <span class="section-label">Security Model</span>
+      <h2>Contained<br><span class="accent">by design.</span></h2>
+      <p class="lede">Six controls enforced in the runtime — not bolted on afterward. Each one is something you can put in front of your auditors.</p>
+    </div>
+
+    <div class="security-grid">
+      <div class="sec-card reveal"><span class="idx">i.</span><h3>Deny-by-Default Networking</h3><p>No egress unless you declare it. The sandbox routes out through a single policy proxy — every connection inspected, logged, and rate-limited.</p></div>
+      <div class="sec-card reveal"><span class="idx">ii.</span><h3>Network-Namespace Isolation</h3><p>Each agent gets its own network namespace, filesystem, and process tree. It can't see the host, your internal network, or another tenant's workload.</p></div>
+      <div class="sec-card reveal"><span class="idx">iii.</span><h3>Agent-Blind Credentials</h3><p>Keys are injected at the boundary, never into the agent. A compromised agent has no secret to steal and nothing to leak.</p></div>
+      <div class="sec-card reveal"><span class="idx">iv.</span><h3>Host Approval &amp; Egress Control</h3><p>Add or revoke the exact hosts an agent may reach from one policy. Changes apply live, and every approval is recorded.</p></div>
+      <div class="sec-card reveal"><span class="idx">v.</span><h3>Resource Containment</h3><p>Cgroup limits cap CPU, memory, and process count. A runaway or forked agent is killed before it can touch the host.</p></div>
+      <div class="sec-card reveal"><span class="idx">vi.</span><h3>Full Audit Trail</h3><p>Every session, tool call, and egress decision is logged and reviewable in the dashboard — the evidence your compliance team asks for.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- MODELS -->
+<section id="models">
+  <div class="container">
+    <div class="reveal">
+      <span class="section-label">Model Registry</span>
+      <h2>Any model,<br><span class="accent">one router.</span></h2>
+      <p class="lede">Switch providers in real time. No SDK reshuffling, no environment swaps, no re-leaked tokens. Bring your own keys — or use ours.</p>
+    </div>
+
+    <div class="models-table reveal">
+      <div class="model-row head"><div></div><div>Model</div><div>Provider</div><div>Strength</div><div>Status</div></div>
+      <div class="model-row"><div class="ix">01</div><div class="name">Claude Opus 4.8</div><div class="prov">Anthropic</div><div class="cmd">frontier reasoning</div><div><span class="badge">Available</span></div></div>
+      <div class="model-row"><div class="ix">02</div><div class="name">Claude Sonnet 4.6</div><div class="prov">Anthropic</div><div class="cmd">fast · balanced</div><div><span class="badge">Available</span></div></div>
+      <div class="model-row"><div class="ix">03</div><div class="name">GPT-class</div><div class="prov">OpenAI</div><div class="cmd">general-purpose</div><div><span class="badge">Available</span></div></div>
+      <div class="model-row"><div class="ix">04</div><div class="name">Gemini</div><div class="prov">Google</div><div class="cmd">multimodal</div><div><span class="badge">Available</span></div></div>
+      <div class="model-row"><div class="ix">05</div><div class="name">Llama</div><div class="prov">Meta</div><div class="cmd">open weights</div><div><span class="badge">Available</span></div></div>
+      <div class="model-row"><div class="ix">06</div><div class="name">Nemotron</div><div class="prov">NVIDIA NIM</div><div class="cmd">runs on your GPUs</div><div><span class="badge">Active</span></div></div>
+    </div>
+    <p class="lede reveal" style="margin-top:24px;font-size:14px;">+ DeepSeek, Qwen, Moonshot, Mistral, GLM and OpenRouter — or any OpenAI-compatible endpoint.</p>
+  </div>
+</section>
+
+<!-- QUICK START -->
+<section id="start">
+  <div class="container">
+    <div class="reveal">
+      <span class="section-label">Quick Start</span>
+      <h2>Three steps to<br><span class="accent">production.</span></h2>
+      <p class="lede">From zero to a sandboxed, multi-provider agent in minutes — self-hosted, or fully managed by us.</p>
+    </div>
+
+    <div class="qs-grid">
+      <div class="step reveal"><span class="step-num">i</span><h3>Install</h3><p>One command pulls everything — Node, Docker, the OpenShell runtime, and the Diffract stack.</p><code>$ curl -fsSL https://diffraction.in/install.sh | bash</code></div>
+      <div class="step reveal"><span class="step-num">ii</span><h3>Onboard</h3><p>Provision an isolated sandbox, register your model providers, and bring up the gateway and dashboard.</p><code>$ diffract onboard</code></div>
+      <div class="step reveal"><span class="step-num">iii</span><h3>Operate</h3><p>Open the dashboard to chat, connect your tools, and set the egress policy your security team signs off on.</p><code># open your private dashboard</code></div>
+    </div>
+  </div>
+</section>
+
+<!-- CTA -->
+<section class="cta-section">
+  <div class="container reveal">
+    <span class="section-label" style="justify-content: center;">Get Started</span>
+    <h2>Ready to deploy your<br><span class="accent">first agent?</span></h2>
+    <p class="lede">Self-hosted or fully managed. Audit-ready from day one. Built for teams who refuse to trade safety for speed.</p>
+    <div class="cta-buttons">
+      <a href="https://calendly.com/diffraction-in/30min" target="_blank" rel="noopener" class="btn btn-primary" data-magnetic>Schedule a Meeting →</a>
+      <a href="#start" class="btn btn-ghost" data-magnetic>Install it yourself</a>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<!-- FOOTER -->
+<footer>
+  <div class="foot-grid">
+    <div class="foot-brand">
+      <a href="#top" class="logo" data-scroll-top><span class="logo-mark"></span>DIFFRACT</a>
+      <p>The enterprise platform for autonomous AI agents — kernel-isolated, policy-controlled, and auditable. Built on NVIDIA OpenShell. Deploy in one command.</p>
+    </div>
+    <div class="foot-col">
+      <h4>Product</h4>
+      <a href="#features">Features</a>
+      <a href="#architecture">Architecture</a>
+      <a href="#models">Models</a>
+      <a href="#security">Security</a>
+    </div>
+    <div class="foot-col">
+      <h4>Platform</h4>
+      <a href="#start">Quick Start</a>
+      <a href="#security">Security Model</a>
+      <a href="#models">Model Registry</a>
+    </div>
+    <div class="foot-col">
+      <h4>Get Started</h4>
+      <a href="https://calendly.com/diffraction-in/30min" target="_blank" rel="noopener">Schedule a Meeting</a>
+      <a href="#start">Self-host in one command</a>
+    </div>
+  </div>
+  <div class="foot-bottom">
+    <span>© 2026 Diffract</span>
+    <span class="tagline">Infrastructure that cannot be breached</span>
+    <span>Built on NVIDIA OpenShell</span>
+  </div>
+</footer>
+
+</div><!-- /#smooth-content -->
+</div><!-- /#smooth-wrapper -->
 
 <script>
-  /* ── custom cursor ── */
-  (function(){
-    var c = document.getElementById('cursor'), r = document.getElementById('cursorRing');
-    var rx = 0, ry = 0, tx = 0, ty = 0;
-    window.addEventListener('mousemove', function(e){ tx = e.clientX; ty = e.clientY; c.style.left = tx+'px'; c.style.top = ty+'px'; });
-    (function loop(){ rx += (tx-rx)*.18; ry += (ty-ry)*.18; r.style.left = rx+'px'; r.style.top = ry+'px'; requestAnimationFrame(loop); })();
-    document.addEventListener('mouseover', function(e){ if (e.target.closest('a,button,input')) { r.style.width='56px'; r.style.height='56px'; } });
-    document.addEventListener('mouseout', function(e){ if (e.target.closest('a,button,input')) { r.style.width='40px'; r.style.height='40px'; } });
-  })();
+// ============================================
+// 3D ANTIGRAVITY PARTICLE FIELD
+// ============================================
+const canvas = document.getElementById('bg-canvas');
+const ctx = canvas.getContext('2d');
+let W, H;
 
-  /* ════════════════════════════════════════════════════════════════════
-     NAME-BEFORE-PAY FLOW (auto-provisioned)
-       State 1  Name + Subscribe → POST /api/checkout {workspace,email}
-                                  → Dodo checkout (workspace rides in metadata)
-       (Dodo subscription.active webhook → control plane provisions the VPS)
-       State 3  (return ?paid=1) Confirmation — "provisioning your workspace"
-     ════════════════════════════════════════════════════════════════════ */
+function resize() {
+  W = canvas.width = window.innerWidth * window.devicePixelRatio;
+  H = canvas.height = window.innerHeight * window.devicePixelRatio;
+  canvas.style.width = window.innerWidth + 'px';
+  canvas.style.height = window.innerHeight + 'px';
+}
+resize();
+window.addEventListener('resize', resize);
 
-  /* ── slug → subdomain preview + validation (mirrors checkout.php + the
-     control-plane provisioner). Reserved list MUST stay in sync. ── */
-  var RESERVED = new Set(['app','www','ftp','api','admin','mail','root','ns','ns1','ns2','cdn',
-    'static','assets','dashboard','status','blog','support','help','docs','console','portal',
-    'login','signup','sign-up','dev','staging','test','demo','mx','smtp','webmail','vpn','git','cp','control','@']);
-  function slugify(v){
-    return (v||'').toLowerCase().trim()
-      .replace(/[^a-z0-9-]+/g,'-').replace(/-+/g,'-').replace(/^-+|-+$/g,'');
+// 3D particle field with antigravity drift
+const particles = [];
+const NUM_PARTICLES = 180;
+const FOCAL = 600;
+
+class Particle {
+  constructor() { this.reset(true); }
+  reset(initial) {
+    this.x = (Math.random() - 0.5) * 2400;
+    this.y = (Math.random() - 0.5) * 1800;
+    this.z = initial ? Math.random() * 1500 : 1500;
+    this.vy = -(Math.random() * 0.4 + 0.15); // antigravity rise
+    this.vx = (Math.random() - 0.5) * 0.2;
+    this.vz = -(Math.random() * 0.6 + 0.2);
+    this.size = Math.random() * 1.8 + 0.4;
+    this.amber = Math.random() < 0.18;
   }
-  function validateSlug(slug){
-    if (!slug) return { ok:false, msg:'' };
-    if (slug.length < 3) return { ok:false, msg:'At least 3 characters.' };
-    if (slug.length > 30) return { ok:false, msg:'30 characters max.' };
-    if (RESERVED.has(slug)) return { ok:false, msg:'"'+slug+'" is reserved — pick another name.' };
-    return { ok:true, msg:'' };
+  update(mx, my) {
+    this.x += this.vx + mx * 0.02;
+    this.y += this.vy + my * 0.02;
+    this.z += this.vz;
+    if (this.z < -200 || this.y < -1000) this.reset(false);
   }
-  function emailOk(v){ return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v); }
-
-  /* ── State 3: confirmation after returning from Dodo (?paid=1) ── */
-  (function(){
-    var q = new URLSearchParams(location.search);
-    if (q.get('paid') !== '1') return;
-    var sub = document.getElementById('subscribeState');
-    if (sub) sub.classList.add('hide');
-    var ws = slugify(q.get('ws') || '');
-    if (ws) document.getElementById('successUrl').textContent = ws + '.diffraction.in';
-    document.getElementById('successState').classList.add('show');
-    // Best-effort audit record — the webhook is the source of truth for provisioning.
-    try {
-      fetch('/api/claim', {
-        method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ workspace: ws, email: (q.get('email')||q.get('customer_email')||''), ref: location.search.replace(/^\?/,'') })
-      }).catch(function(){});
-    } catch(_){}
-  })();
-
-  /* ── State 1: name + subscribe → checkout (workspace carried in metadata) ── */
-  (function(){
-    var form = document.getElementById('subscribeState');
-    if (!form || new URLSearchParams(location.search).get('paid') === '1') return;
-    var wsInput = document.getElementById('workspace');
-    var emailInput = document.getElementById('email');
-    var previewUrl = document.getElementById('previewUrl');
-    var previewDot = document.getElementById('previewDot');
-    var wsHint = document.getElementById('workspaceHint');
-    var btn = document.getElementById('subscribeBtn');
-    var err = document.getElementById('subError');
-
-    var availTimer = null, lastChecked = '', availOk = true;
-
-    function setBtn(){
-      var slug = slugify(wsInput.value);
-      btn.disabled = !(validateSlug(slug).ok && slug && emailOk(emailInput.value) && availOk);
+  draw() {
+    const scale = FOCAL / (FOCAL + this.z);
+    const px = this.x * scale + W / 2;
+    const py = this.y * scale + H / 2;
+    if (px < 0 || px > W || py < 0 || py > H) return;
+    const r = this.size * scale * window.devicePixelRatio;
+    const alpha = Math.min(1, scale * 1.4);
+    if (this.amber) {
+      ctx.fillStyle = `rgba(200, 133, 10, ${alpha * 0.85})`;
+      ctx.shadowColor = 'rgba(235, 160, 32, 0.9)';
+      ctx.shadowBlur = 12 * scale;
+    } else {
+      ctx.fillStyle = `rgba(212, 216, 220, ${alpha * 0.5})`;
+      ctx.shadowColor = 'rgba(212, 216, 220, 0.4)';
+      ctx.shadowBlur = 4 * scale;
     }
-    function refresh(){
-      var slug = slugify(wsInput.value);
-      var v = validateSlug(slug);
-      previewUrl.innerHTML = '<b>' + (slug || 'your-workspace') + '</b>.diffraction.in';
-      var shapeOk = v.ok && !!slug;
-      previewDot.className = 'dot' + (shapeOk && availOk ? '' : ' bad');
-      wsInput.classList.toggle('invalid', !!wsInput.value && !shapeOk);
-      wsHint.textContent = v.msg;
-      wsHint.className = 'hint' + (v.msg ? ' error' : '');
-      emailInput.classList.toggle('invalid', !!emailInput.value && !emailOk(emailInput.value));
-      setBtn();
-      if (shapeOk && slug !== lastChecked) {
-        clearTimeout(availTimer);
-        availTimer = setTimeout(function(){ checkAvail(slug); }, 350);
-      }
-    }
-    async function checkAvail(slug){
-      lastChecked = slug;
-      try {
-        var res = await fetch('/api/available?subdomain=' + encodeURIComponent(slug));
-        var data = await res.json().catch(function(){ return { available:true }; });
-        if (slugify(wsInput.value) !== slug) return;   // user kept typing — stale
-        availOk = data.available !== false;
-        if (!availOk) { wsHint.textContent = data.reason || 'That name is taken — pick another.'; wsHint.className = 'hint error'; previewDot.className = 'dot bad'; }
-        else if (validateSlug(slug).ok) { wsHint.textContent = 'Available'; wsHint.className = 'hint'; previewDot.className = 'dot'; }
-        setBtn();
-      } catch(_){ availOk = true; setBtn(); }   // fail open
-    }
-    wsInput.addEventListener('input', function(){ availOk = true; refresh(); });
-    emailInput.addEventListener('input', refresh);
-    refresh();
+    ctx.beginPath();
+    ctx.arc(px, py, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
 
-    form.addEventListener('submit', async function(e){
+for (let i = 0; i < NUM_PARTICLES; i++) particles.push(new Particle());
+
+let mouseX = 0, mouseY = 0, smoothMX = 0, smoothMY = 0;
+window.addEventListener('mousemove', (e) => {
+  mouseX = (e.clientX - window.innerWidth / 2);
+  mouseY = (e.clientY - window.innerHeight / 2);
+});
+
+function loop() {
+  ctx.fillStyle = 'rgba(14, 15, 17, 0.18)';
+  ctx.fillRect(0, 0, W, H);
+  smoothMX += (mouseX - smoothMX) * 0.05;
+  smoothMY += (mouseY - smoothMY) * 0.05;
+  particles.forEach(p => { p.update(smoothMX, smoothMY); p.draw(); });
+  ctx.shadowBlur = 0;
+  requestAnimationFrame(loop);
+}
+loop();
+
+// ============================================
+// CUSTOM CURSOR
+// ============================================
+const cursor = document.querySelector('.cursor');
+const cursorRing = document.querySelector('.cursor-ring');
+let cx = 0, cy = 0, rx = 0, ry = 0;
+window.addEventListener('mousemove', (e) => {
+  cx = e.clientX; cy = e.clientY;
+  cursor.style.transform = `translate(${cx - 4}px, ${cy - 4}px)`;
+});
+function ringLoop() {
+  rx += (cx - rx) * 0.18;
+  ry += (cy - ry) * 0.18;
+  cursorRing.style.transform = `translate(${rx}px, ${ry}px) translate(-50%, -50%)`;
+  requestAnimationFrame(ringLoop);
+}
+ringLoop();
+document.querySelectorAll('a, .btn, .feature, .layer, .sec-card, .step').forEach(el => {
+  el.addEventListener('mouseenter', () => {
+    cursorRing.style.width = '70px';
+    cursorRing.style.height = '70px';
+    cursorRing.style.borderColor = 'rgba(235, 160, 32, 0.8)';
+  });
+  el.addEventListener('mouseleave', () => {
+    cursorRing.style.width = '40px';
+    cursorRing.style.height = '40px';
+    cursorRing.style.borderColor = 'rgba(200, 133, 10, 0.5)';
+  });
+});
+
+// ============================================
+// REVEAL ON SCROLL — Manual visibility check
+// (IntersectionObserver doesn't play well with transformed wrappers)
+// ============================================
+const revealEls = Array.from(document.querySelectorAll('.reveal'));
+function checkReveals() {
+  const trigger = window.innerHeight * 0.88;
+  revealEls.forEach((el, i) => {
+    if (el.classList.contains('visible')) return;
+    const rect = el.getBoundingClientRect();
+    if (rect.top < trigger && rect.bottom > 0) {
+      // Stagger by index relative to the section
+      setTimeout(() => el.classList.add('visible'), 0);
+    }
+  });
+}
+window.addEventListener('scroll', checkReveals, { passive: true });
+window.addEventListener('resize', checkReveals);
+window.addEventListener('load', checkReveals);
+setTimeout(checkReveals, 200);
+
+// ============================================
+// VAULT 3D — Mouse parallax + scroll-driven tilt
+// ============================================
+const vault3d = document.getElementById('vault3d');
+const vaultStage = document.getElementById('vaultStage');
+let vaultMX = 0, vaultMY = 0, vaultTX = 0, vaultTY = 0;
+
+window.addEventListener('mousemove', (e) => {
+  vaultTX = (e.clientX / window.innerWidth - 0.5) * 14;
+  vaultTY = (e.clientY / window.innerHeight - 0.5) * 14;
+});
+
+function vaultLoop() {
+  vaultMX += (vaultTX - vaultMX) * 0.06;
+  vaultMY += (vaultTY - vaultMY) * 0.06;
+  if (vault3d) {
+    const scrollProgress = Math.min(window.pageYOffset / window.innerHeight, 1);
+    const scrollTilt = scrollProgress * 8;
+    vault3d.style.transform = `translate(-50%, -50%) rotateY(${vaultMX - scrollTilt}deg) rotateX(${-vaultMY + scrollTilt}deg) translateY(${scrollProgress * -40}px)`;
+  }
+  requestAnimationFrame(vaultLoop);
+}
+vaultLoop();
+
+// Fade vault when scrolled past hero
+window.addEventListener('scroll', () => {
+  if (!vaultStage) return;
+  const scrolled = window.pageYOffset;
+  if (scrolled > window.innerHeight * 0.6) {
+    vaultStage.classList.add('dim');
+  } else {
+    vaultStage.classList.remove('dim');
+  }
+}, { passive: true });
+
+// ============================================
+// SMOOTH SCROLL — Wheel-based inertia
+// Hijacks wheel events for smooth Lenis-feel without breaking layout
+// Exposes window.smoothScrollTo(y) for anchor navigation
+// ============================================
+(function () {
+  if ('ontouchstart' in window) {
+    // On touch devices, still expose smoothScrollTo (uses native smooth)
+    window.smoothScrollTo = (y) => window.scrollTo({ top: y, behavior: 'smooth' });
+    return;
+  }
+  let target = window.scrollY;
+  let current = window.scrollY;
+  const ease = 0.1;
+  let raf = null;
+
+  function clamp(v) {
+    const max = document.documentElement.scrollHeight - window.innerHeight;
+    return Math.max(0, Math.min(max, v));
+  }
+
+  function loop() {
+    current += (target - current) * ease;
+    if (Math.abs(target - current) < 0.3) {
+      current = target;
+      window.scrollTo(0, current);
+      raf = null;
+      return;
+    }
+    window.scrollTo(0, current);
+    raf = requestAnimationFrame(loop);
+  }
+
+  function startLoop() {
+    if (!raf) raf = requestAnimationFrame(loop);
+  }
+
+  // Public API: smoothly scroll to a y position via the same lerp loop
+  window.smoothScrollTo = function (y) {
+    target = clamp(y);
+    startLoop();
+  };
+
+  window.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    target = clamp(target + e.deltaY);
+    startLoop();
+  }, { passive: false });
+
+  // Sync target if user uses keyboard / programmatic scroll
+  window.addEventListener('scroll', () => {
+    if (raf === null) {
+      target = window.scrollY;
+      current = window.scrollY;
+    }
+  }, { passive: true });
+
+  // Keyboard nav (PageUp / PageDown / Home / End / Arrow keys)
+  window.addEventListener('keydown', (e) => {
+    // Don't hijack keys when typing in inputs
+    if (e.target.matches('input, textarea, [contenteditable]')) return;
+    const step = window.innerHeight * 0.85;
+    if (e.key === 'PageDown' || e.key === ' ') { target = clamp(target + step); }
+    else if (e.key === 'PageUp') { target = clamp(target - step); }
+    else if (e.key === 'Home') { target = 0; }
+    else if (e.key === 'End') { target = document.documentElement.scrollHeight; }
+    else if (e.key === 'ArrowDown') { target = clamp(target + 80); }
+    else if (e.key === 'ArrowUp') { target = clamp(target - 80); }
+    else return;
+    e.preventDefault();
+    startLoop();
+  });
+})();
+
+// ============================================
+// ANCHOR LINK NAVIGATION
+// All in-page anchor links use smoothScrollTo
+// External links (target="_blank" or full URLs) pass through
+// ============================================
+document.addEventListener('click', (e) => {
+  const link = e.target.closest('a');
+  if (!link) return;
+
+  const href = link.getAttribute('href');
+  if (!href) return;
+
+  // Logo / scroll-to-top
+  if (link.hasAttribute('data-scroll-top') || href === '#top') {
+    e.preventDefault();
+    if (window.smoothScrollTo) window.smoothScrollTo(0);
+    return;
+  }
+
+  // Anchor links: #section-id
+  if (href.startsWith('#') && href.length > 1) {
+    const targetEl = document.querySelector(href);
+    if (targetEl) {
       e.preventDefault();
-      err.textContent = '';
-      var slug = slugify(wsInput.value);
-      if (!(validateSlug(slug).ok && emailOk(emailInput.value) && availOk)) { refresh(); return; }
-      btn.disabled = true; btn.textContent = 'Redirecting to checkout…';
-      try {
-        var res = await fetch('/api/checkout', {
-          method:'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({ workspace: slug, email: emailInput.value.trim() })
-        });
-        var data = await res.json().catch(function(){ return {}; });
-        if (!res.ok || !data.url) throw new Error(data.error || ('HTTP ' + res.status));
-        window.location.href = data.url;   // -> Dodo hosted checkout (₹2,000/mo)
-      } catch(e2){
-        btn.disabled = false; btn.textContent = 'Subscribe — ₹2,000/mo →';
-        err.textContent = "Couldn't start checkout (" + (e2.message || e2) + "). Try again, or schedule a call below.";
+      const rect = targetEl.getBoundingClientRect();
+      // 90px = brand strip + nav offset
+      const top = rect.top + window.scrollY - 90;
+      if (window.smoothScrollTo) {
+        window.smoothScrollTo(top);
+      } else {
+        window.scrollTo({ top, behavior: 'smooth' });
       }
-    });
-  })();
+    }
+  }
+  // External links with target="_blank" or full URLs: pass through (browser handles)
+});
+
+// ============================================
+// LIVE CLOCK (UTC) — Monolith-inspired
+// ============================================
+const navClock = document.getElementById('navClock');
+function tickClock() {
+  if (!navClock) return;
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  navClock.textContent = `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`;
+}
+tickClock();
+setInterval(tickClock, 1000);
+
+// ============================================
+// SCROLL PROGRESS BAR + STATUS BAR LIVE METRICS
+// ============================================
+const scrollProgress = document.getElementById('scrollProgress');
+const scrollPct = document.getElementById('scrollPct');
+function updateScroll() {
+  const top = window.pageYOffset;
+  const max = document.documentElement.scrollHeight - window.innerHeight;
+  const pct = max > 0 ? (top / max) * 100 : 0;
+  if (scrollProgress) scrollProgress.style.width = pct + '%';
+  if (scrollPct) scrollPct.textContent = String(Math.round(pct)).padStart(2, '0');
+}
+window.addEventListener('scroll', updateScroll, { passive: true });
+updateScroll();
+
+// Live "fake" telemetry for status bar (gentle drift)
+const cpuTick = document.getElementById('cpuTick');
+const memTick = document.getElementById('memTick');
+const latTick = document.getElementById('latTick');
+let cpuV = 4, memV = 31, latV = 12;
+setInterval(() => {
+  cpuV = Math.max(2, Math.min(9, cpuV + (Math.random() - 0.5) * 1.4));
+  memV = Math.max(28, Math.min(36, memV + (Math.random() - 0.5) * 1.2));
+  latV = Math.max(8, Math.min(22, latV + (Math.random() - 0.5) * 3));
+  if (cpuTick) cpuTick.textContent = String(Math.round(cpuV)).padStart(2, '0');
+  if (memTick) memTick.textContent = String(Math.round(memV)).padStart(2, '0');
+  if (latTick) latTick.textContent = String(Math.round(latV)).padStart(2, '0');
+}, 1500);
+
+// ============================================
+// CURSOR SPOTLIGHT (follows mouse with lerp)
+// ============================================
+const spotlight = document.getElementById('cursorSpotlight');
+let spotX = 0, spotY = 0, targetSpotX = 0, targetSpotY = 0;
+window.addEventListener('mousemove', (e) => {
+  targetSpotX = e.clientX;
+  targetSpotY = e.clientY;
+});
+function spotlightLoop() {
+  spotX += (targetSpotX - spotX) * 0.08;
+  spotY += (targetSpotY - spotY) * 0.08;
+  if (spotlight) spotlight.style.transform = `translate(${spotX}px, ${spotY}px) translate(-50%, -50%)`;
+  requestAnimationFrame(spotlightLoop);
+}
+spotlightLoop();
+
+// ============================================
+// HERO H1 — Word-by-word reveal (Framer-style)
+// ============================================
+const heroWords = document.querySelectorAll('.hero-h1 .word');
+heroWords.forEach((w, i) => {
+  w.style.transitionDelay = (0.4 + i * 0.07) + 's';
+});
+window.addEventListener('load', () => {
+  setTimeout(() => {
+    heroWords.forEach(w => w.classList.add('in'));
+  }, 200);
+});
+
+// ============================================
+// MAGNETIC BUTTONS (cursor pull effect)
+// ============================================
+document.querySelectorAll('[data-magnetic]').forEach(el => {
+  const strength = 18;
+  el.addEventListener('mousemove', (e) => {
+    const rect = el.getBoundingClientRect();
+    const x = e.clientX - rect.left - rect.width / 2;
+    const y = e.clientY - rect.top - rect.height / 2;
+    el.style.transform = `translate(${(x / rect.width) * strength}px, ${(y / rect.height) * strength}px)`;
+  });
+  el.addEventListener('mouseleave', () => {
+    el.style.transform = 'translate(0, 0)';
+  });
+});
+
+// ============================================
+// COUNTING / SCRAMBLING NUMBERS — Manual check
+// ============================================
+const countEls = Array.from(document.querySelectorAll('.num.count'));
+function animateCount(el) {
+  if (el.dataset.counted) return;
+  el.dataset.counted = '1';
+  const target = parseInt(el.dataset.target, 10);
+  const suffix = el.dataset.suffix || '';
+  const pad = parseInt(el.dataset.pad || '0', 10);
+  const duration = 1600;
+  const start = performance.now();
+  function tick(now) {
+    const elapsed = now - start;
+    const t = Math.min(elapsed / duration, 1);
+    const eased = 1 - Math.pow(1 - t, 3);
+    const val = Math.round(target * eased);
+    const str = pad ? String(val).padStart(pad, '0') : String(val);
+    el.textContent = str + suffix;
+    if (t < 1) requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+}
+function checkCounts() {
+  const trigger = window.innerHeight * 0.85;
+  countEls.forEach(el => {
+    if (el.dataset.counted) return;
+    const rect = el.getBoundingClientRect();
+    if (rect.top < trigger && rect.bottom > 0) animateCount(el);
+  });
+}
+window.addEventListener('scroll', checkCounts, { passive: true });
+window.addEventListener('load', checkCounts);
+setTimeout(checkCounts, 300);
+
+// ============================================
+// SIDENOTE — Show after delay, dismiss on click
+// ============================================
+const sidenote = document.getElementById('sidenote');
+const sidenoteClose = sidenote ? sidenote.querySelector('.sidenote-close') : null;
+setTimeout(() => {
+  if (sidenote && !sessionStorage.getItem('sidenoteClosed')) {
+    sidenote.classList.add('show');
+  }
+}, 3500);
+if (sidenoteClose) {
+  sidenoteClose.addEventListener('click', () => {
+    sidenote.classList.remove('show');
+    sessionStorage.setItem('sidenoteClosed', '1');
+  });
+}
+
+// Auto-hide sidenote when scrolling past hero
+window.addEventListener('scroll', () => {
+  if (sidenote && window.pageYOffset > window.innerHeight * 0.8) {
+    sidenote.classList.remove('show');
+  }
+}, { passive: true });
 </script>
+
 </body>
 </html>
