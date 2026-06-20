@@ -510,6 +510,10 @@ Environment=PATH=$PATH
 Environment=PORT=3000
 Environment=NODE_ENV=production
 Environment=DIFFRACT_PATH=$(which nemoclaw || echo "nemoclaw")
+# Hermes is the ONLY agent Diffract ships. Force it for every onboard the
+# dashboard spawns: resolveAgentName honors NEMOCLAW_AGENT, so even a fresh /
+# session-less onboard can never silently fall back to OpenClaw.
+Environment=NEMOCLAW_AGENT=hermes
 EnvironmentFile=$DIFFRACT_ENV_FILE
 ExecStart=$NPM_PATH run start
 Restart=always
@@ -774,6 +778,8 @@ Wants=docker.service
 Type=simple
 User=root
 Environment=PATH=$PATH
+# Force Hermes for any recover/onboard the watchdog triggers (never OpenClaw).
+Environment=NEMOCLAW_AGENT=hermes
 ExecStart=/usr/local/bin/diffract-gateway-watchdog.sh
 Restart=always
 RestartSec=10
@@ -781,6 +787,14 @@ RestartSec=10
 [Install]
 WantedBy=multi-user.target
 EOF
+
+    # Default EVERY onboard on this box to Hermes — including a manual/CLI
+    # `nemoclaw onboard` run in a root shell (resolveAgentName: flag > env >
+    # session > openclaw). The systemd units above set it for the dashboard +
+    # watchdog; /etc/environment covers login shells. Idempotent.
+    if ! grep -q '^NEMOCLAW_AGENT=' /etc/environment 2>/dev/null; then
+        echo 'NEMOCLAW_AGENT=hermes' >> /etc/environment
+    fi
 
     systemctl daemon-reload
     systemctl enable sandbox-port-forwarder.service
