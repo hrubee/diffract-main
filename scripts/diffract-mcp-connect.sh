@@ -111,6 +111,7 @@ import os
 from ruamel.yaml import YAML
 p = "/sandbox/.hermes/config.yaml"
 yaml = YAML()
+yaml.width = 4096  # never wrap long MCP URLs/tokens across lines (folds a space -> breaks auth)
 try:
     with open(p) as f:
         cfg = yaml.load(f) or {}
