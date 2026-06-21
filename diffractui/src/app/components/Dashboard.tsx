@@ -21,6 +21,10 @@ export default function Dashboard({ sandboxName, onDestroyed }: Props) {
   const [forwardLoading, setForwardLoading] = useState(false);
   const [gatewayToken, setGatewayToken] = useState("");
   const [tokenCopied, setTokenCopied] = useState("");
+  // Redeploy (sandbox recreate) progress overlay.
+  const [redeploying, setRedeploying] = useState(false);
+  const [redeployLogs, setRedeployLogs] = useState<string[]>([]);
+  const [redeployDone, setRedeployDone] = useState(false);
   const logRef = useRef<HTMLDivElement>(null);
 
   function checkForward() {
@@ -39,6 +43,53 @@ export default function Dashboard({ sandboxName, onDestroyed }: Props) {
         setForwardLoading(false);
       })
       .catch(() => setForwardLoading(false));
+  }
+
+  // Recreate the sandbox so the chat daemon re-binds tools / MCP servers connected
+  // since the last create (OpenShell binds a tool's credential to the chat agent
+  // only at sandbox create). The backend's action=redeploy mode omits provider/model
+  // so the inference route is preserved; only relative URLs are used so this works
+  // on any client's domain.
+  function startRedeploy() {
+    if (redeploying) return;
+    if (
+      !confirm(
+        `Redeploy "${sandboxName}"?\n\n` +
+          `This recreates the sandbox so the chat agent picks up newly-connected ` +
+          `tools and MCP servers. Your /sandbox files and the current model are ` +
+          `preserved. Chat is interrupted for about two minutes.`,
+      )
+    )
+      return;
+    setRedeploying(true);
+    setRedeployDone(false);
+    setRedeployLogs(["Starting redeploy…"]);
+    const es = new EventSource(
+      `/api/deploy?action=redeploy&sandboxName=${encodeURIComponent(sandboxName)}`,
+    );
+    es.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type === "log") {
+          setRedeployLogs((prev) => [...prev, data.message]);
+        } else if (data.type === "done") {
+          setRedeployLogs((prev) => [...prev, "Done."]);
+          setRedeployDone(true);
+          es.close();
+        } else if (data.type === "error") {
+          setRedeployLogs((prev) => [...prev, `ERROR: ${data.message}`]);
+        }
+      } catch {
+        /* keep-alive / partial frame */
+      }
+    };
+    es.onerror = () => {
+      // EventSource also fires onerror on a normal end-of-stream close. The `done`
+      // event is authoritative; if the stream drops before it, mark complete so the
+      // user is never stuck on a spinner.
+      es.close();
+      setRedeployDone(true);
+    };
   }
 
   useEffect(() => {
@@ -314,7 +365,7 @@ export default function Dashboard({ sandboxName, onDestroyed }: Props) {
               setTokenCopied("connect");
               setTimeout(() => setTokenCopied(""), 2000);
             }} labelOverride={tokenCopied === "connect" ? "Copied!" : undefined} />
-            <ActionButton label="Restart" desc="Restart sandbox" variant="secondary" onClick={() => {}} />
+            <ActionButton label="Redeploy" desc="Recreate the sandbox to load newly-connected tools / MCP servers into chat (model preserved)" variant="secondary" onClick={startRedeploy} />
             <ActionButton label="Destroy" desc="Delete sandbox" variant="danger" onClick={() => {
               if (
                 confirm(
@@ -346,7 +397,9 @@ export default function Dashboard({ sandboxName, onDestroyed }: Props) {
       {/* Files Tab — browse / upload / download files in the sandbox */}
       {activeTab === "files" && <FilesTab sandboxName={sandboxName} />}
 
-      {activeTab === "tools" && <ToolsTab sandboxName={sandboxName} />}
+      {activeTab === "tools" && (
+        <ToolsTab sandboxName={sandboxName} onRedeploy={startRedeploy} />
+      )}
 
       {/* Logs Tab — openshell logs --tail */}
       {activeTab === "logs" && (
@@ -499,6 +552,52 @@ export default function Dashboard({ sandboxName, onDestroyed }: Props) {
               Loading rules...
             </div>
           )}
+        </div>
+      )}
+
+      {/* Redeploy progress overlay */}
+      {redeploying && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+          <div className="w-full max-w-lg space-y-3 rounded-lg border border-nc-border bg-nc-surface p-5">
+            <div className="flex items-center gap-2">
+              {!redeployDone && (
+                <span className="h-3 w-3 animate-spin rounded-full border-2 border-nc-green border-t-transparent" />
+              )}
+              <h3 className="text-sm font-semibold text-nc-text">
+                {redeployDone ? "Redeploy complete" : "Redeploying…"}
+              </h3>
+            </div>
+            <p className="text-xs text-nc-text-muted">
+              {redeployDone
+                ? "Your connected tools and MCP servers are now available in chat. Start a new chat (or send a message) to use them."
+                : "Recreating the sandbox so the chat agent picks up connected tools. This takes about two minutes — keep this tab open."}
+            </p>
+            <div className="max-h-64 overflow-y-auto rounded border border-nc-border bg-nc-bg p-2 font-mono text-[0.7rem] leading-relaxed text-nc-text-dim">
+              {redeployLogs.map((l, i) => (
+                <div key={i} className="whitespace-pre-wrap break-words">
+                  {l}
+                </div>
+              ))}
+            </div>
+            <div className="flex justify-end">
+              <button
+                onClick={() => {
+                  setRedeploying(false);
+                  setRedeployLogs([]);
+                  setRedeployDone(false);
+                  // Re-read status so Provider / Model / state reflect the new sandbox.
+                  fetch(`/api/status?sandbox=${sandboxName}`)
+                    .then((r) => r.json())
+                    .then((data) => setStatus(data.status || {}))
+                    .catch(() => {});
+                }}
+                disabled={!redeployDone}
+                className="rounded-md bg-nc-green px-3 py-1.5 text-xs font-medium text-black transition-all hover:bg-nc-green-dark disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {redeployDone ? "Done" : "Please wait…"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

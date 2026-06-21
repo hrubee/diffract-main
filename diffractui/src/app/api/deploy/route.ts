@@ -70,26 +70,38 @@ export async function GET(request: Request) {
   };
 
   const credKey = credentialMap[provider] || "COMPATIBLE_API_KEY";
+
+  // A plain "redeploy" (action=redeploy) just recreates the existing sandbox so the
+  // chat daemon re-binds tools / MCP servers connected since the last create. It must
+  // NOT touch the inference route: we omit NEMOCLAW_PROVIDER/MODEL/POLICY so
+  // `onboard --recreate-sandbox` reuses the sandbox's stored route + policy, and we
+  // inherit the host model-router key verbatim. (Proven safe — a recovery recreate
+  // with only the host key + --agent hermes preserved the route.) A fresh deploy or
+  // provider switch (no action) sets the route + credential from the form instead.
+  const redeploy = searchParams.get("action") === "redeploy";
+
   const env = {
     ...process.env,
     NEMOCLAW_NON_INTERACTIVE: "1",
     NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE: "1",
-    NEMOCLAW_PROVIDER: providerMap[provider] || provider,
-    NEMOCLAW_MODEL: model,
-    NEMOCLAW_POLICY_MODE: "custom",
     NEMOCLAW_AGENT: "hermes",
-    NEMOCLAW_POLICY_PRESETS: policies,
     NEMOCLAW_IGNORE_RUNTIME_RESOURCES: "1",
-    // Fall back to the host key when the form field is blank. A blank apiKey must
-    // NOT blank out the inherited host credential (e.g. NVIDIA_API_KEY in
-    // /etc/diffractui.env): the model-router credential is injected into the agent
-    // only at sandbox create and only if present at onboard time, so blanking it
-    // leaves the agent with no inference credential ("No inference provider
-    // configured") even though the gateway route stays healthy. (Keeping this as a
-    // computed property also preserves env's string-index type for the env.NEMOCLAW_*
-    // assignments below.)
-    [credKey]: apiKey || process.env[credKey] || "",
+    // Always carry the host model-router credential (e.g. NVIDIA_API_KEY in
+    // /etc/diffractui.env). A blank form field must never blank it; on a redeploy
+    // there is no form at all, so it is inherited verbatim. The computed key also
+    // preserves env's string-index type for the env.NEMOCLAW_* assignments below.
+    [credKey]: redeploy ? process.env[credKey] || "" : apiKey || process.env[credKey] || "",
   };
+
+  if (!redeploy) {
+    // Fresh deploy / provider switch: set the inference route + policy from the form.
+    // (On redeploy these are deliberately omitted so onboard reuses the stored route,
+    // avoiding inference-route drift when picking up newly-connected tools.)
+    env.NEMOCLAW_PROVIDER = providerMap[provider] || provider;
+    env.NEMOCLAW_MODEL = model;
+    env.NEMOCLAW_POLICY_MODE = "custom";
+    env.NEMOCLAW_POLICY_PRESETS = policies;
+  }
 
   if (sandboxName) env.NEMOCLAW_SANDBOX_NAME = sandboxName;
   if (endpoint) env.NEMOCLAW_ENDPOINT_URL = endpoint;
@@ -160,8 +172,13 @@ export async function GET(request: Request) {
 
       let detectedSandboxName = sandboxName || "";
 
-      send("log", "Starting Diffract deployment...");
-      send("log", `Provider: ${provider}, Model: ${model}`);
+      send(
+        "log",
+        redeploy
+          ? "Redeploying sandbox to load connected tools into chat..."
+          : "Starting Diffract deployment...",
+      );
+      if (!redeploy) send("log", `Provider: ${provider}, Model: ${model}`);
 
       const proc = spawn(`${DIFFRACT} onboard --no-gpu --agent hermes --recreate-sandbox`, [], {
         env,

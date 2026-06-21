@@ -99,7 +99,13 @@ function Field({
   );
 }
 
-export default function ToolsTab({ sandboxName }: { sandboxName: string }) {
+export default function ToolsTab({
+  sandboxName,
+  onRedeploy,
+}: {
+  sandboxName: string;
+  onRedeploy?: () => void;
+}) {
   const [tools, setTools] = useState<Tool[]>([]);
   const [running, setRunning] = useState(true);
   const [loading, setLoading] = useState(false);
@@ -571,17 +577,29 @@ export default function ToolsTab({ sandboxName }: { sandboxName: string }) {
 
       {/* Create-time binding note: tools reach the CHAT agent only at sandbox create. */}
       {chatNote && (
-        <div className="rounded border border-nc-border bg-nc-surface px-3 py-2 text-xs text-nc-text-dim">
-          <span className="text-nc-text font-medium font-mono">{chatNote}</span> is connected and
-          usable in headless / exec sessions now. To use it in{" "}
-          <span className="text-nc-text">chat</span>, redeploy the sandbox from the Deploy tab — the
-          chat agent binds tools at sandbox create.
-          <button
-            onClick={() => setChatNote(null)}
-            className="ml-2 text-nc-text-muted underline hover:text-nc-text"
-          >
-            dismiss
-          </button>
+        <div className="space-y-2 rounded border border-nc-border bg-nc-surface px-3 py-2 text-xs text-nc-text-dim">
+          <div>
+            <span className="text-nc-text font-medium font-mono">{chatNote}</span> is connected and
+            usable in headless / exec sessions now. To use it in{" "}
+            <span className="text-nc-text">chat</span>, redeploy the sandbox — the chat agent binds
+            tools at sandbox create.
+          </div>
+          <div className="flex items-center gap-2">
+            {onRedeploy && (
+              <button
+                onClick={onRedeploy}
+                className="rounded bg-nc-green/15 px-2 py-1 text-xs font-medium text-nc-green hover:bg-nc-green/25"
+              >
+                Redeploy now
+              </button>
+            )}
+            <button
+              onClick={() => setChatNote(null)}
+              className="text-nc-text-muted underline hover:text-nc-text"
+            >
+              dismiss
+            </button>
+          </div>
         </div>
       )}
 
