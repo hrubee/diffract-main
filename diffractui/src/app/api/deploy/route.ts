@@ -1,6 +1,6 @@
 export const dynamic = "force-dynamic";
 import { spawn, execSync, exec, execFile } from "child_process";
-import { existsSync } from "fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync, chmodSync } from "fs";
 import { cookies } from "next/headers";
 import { SESSION_COOKIE, verifySessionToken } from "@/lib/auth";
 
@@ -9,6 +9,45 @@ const DIFFRACT = process.env.DIFFRACT_PATH || "nemoclaw";
 // survive recreate (OpenShell sandboxes have no volume). Installed by setup.sh.
 const PERSIST_SCRIPT = process.env.DIFFRACT_PERSIST_SCRIPT || "/usr/local/bin/diffract-persist.sh";
 const SANDBOX_NAME_RE = /^[a-zA-Z0-9_-]+$/;
+
+// Persisted inference credentials. The model-router key (e.g. NVIDIA_API_KEY) is
+// entered in the setup form on the FIRST deploy and otherwise lives ONLY inside
+// OpenShell's store, which has no read-back CLI. A "redeploy" recreates the sandbox,
+// and onboard's non-interactive inference step REQUIRES the key in the env even
+// though it recovers the provider/model — so we stash the key here (root-only, 0600)
+// at deploy time and re-inject every stored key on redeploy. Kept in its OWN file
+// (not /etc/diffractui.env, which setup.sh rewrites) so it survives setup re-runs.
+const CRED_FILE = process.env.DIFFRACT_CRED_FILE || "/etc/diffract/credentials.env";
+
+function loadPersistedCreds(): Record<string, string> {
+  try {
+    const out: Record<string, string> = {};
+    for (const line of readFileSync(CRED_FILE, "utf8").split("\n")) {
+      const m = line.match(/^([A-Z0-9_]+)=(.*)$/);
+      if (m) out[m[1]] = m[2];
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+function persistCred(key: string, value: string): void {
+  if (!value || !/^[A-Z0-9_]+$/.test(key)) return;
+  try {
+    const creds = loadPersistedCreds();
+    creds[key] = value;
+    mkdirSync(CRED_FILE.replace(/\/[^/]*$/, ""), { recursive: true, mode: 0o700 });
+    writeFileSync(
+      CRED_FILE,
+      Object.entries(creds).map(([k, v]) => `${k}=${v}`).join("\n") + "\n",
+      { mode: 0o600 },
+    );
+    chmodSync(CRED_FILE, 0o600);
+  } catch {
+    /* best-effort; redeploy surfaces a clear onboard error if the key is unavailable */
+  }
+}
 
 // Best-effort backup of the sandbox home to the host store before we destroy
 // the container. Never blocks or fails the destroy — if the helper is missing
@@ -86,14 +125,20 @@ export async function GET(request: Request) {
     NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE: "1",
     NEMOCLAW_AGENT: "hermes",
     NEMOCLAW_IGNORE_RUNTIME_RESOURCES: "1",
-    // Always carry the host model-router credential (e.g. NVIDIA_API_KEY in
-    // /etc/diffractui.env). A blank form field must never blank it; on a redeploy
-    // there is no form at all, so it is inherited verbatim. The computed key also
-    // preserves env's string-index type for the env.NEMOCLAW_* assignments below.
+    // Model-router credential. A blank form field must never blank it. On redeploy
+    // there is no form, so it is re-injected from the persisted store below (onboard's
+    // non-interactive inference step requires the key even when it recovers the
+    // provider). The computed key also preserves env's string-index type for the
+    // env.NEMOCLAW_* assignments below.
     [credKey]: redeploy ? process.env[credKey] || "" : apiKey || process.env[credKey] || "",
   };
 
-  if (!redeploy) {
+  if (redeploy) {
+    // Re-inject every stored inference credential — the key lives only in OpenShell's
+    // store (no read-back CLI) and onboard needs it in the env. Provider-agnostic:
+    // whichever key the recovered provider needs is present. Persisted at first deploy.
+    Object.assign(env, loadPersistedCreds());
+  } else {
     // Fresh deploy / provider switch: set the inference route + policy from the form.
     // (On redeploy these are deliberately omitted so onboard reuses the stored route,
     // avoiding inference-route drift when picking up newly-connected tools.)
@@ -101,6 +146,8 @@ export async function GET(request: Request) {
     env.NEMOCLAW_MODEL = model;
     env.NEMOCLAW_POLICY_MODE = "custom";
     env.NEMOCLAW_POLICY_PRESETS = policies;
+    // Stash the form key so a later redeploy (which has no form) can supply it.
+    if (apiKey) persistCred(credKey, apiKey);
   }
 
   if (sandboxName) env.NEMOCLAW_SANDBOX_NAME = sandboxName;
