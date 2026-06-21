@@ -35,6 +35,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { Markdown } from "@/components/Markdown";
 import { cn } from "@/lib/utils";
 
 type Role = "user" | "assistant";
@@ -610,16 +611,27 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
                 >
                   <div
                     className={cn(
-                      "max-w-[85%] whitespace-pre-wrap break-words rounded-2xl px-4 py-2.5 text-sm leading-relaxed text-text-primary",
+                      "max-w-[85%] break-words rounded-2xl px-4 py-2.5 text-sm leading-relaxed text-text-primary",
                       m.role === "user"
-                        ? "bg-white/10"
+                        ? "whitespace-pre-wrap bg-white/10"
                         : "border border-white/10 bg-white/[0.04]",
                     )}
                   >
                     {m.attachments?.length ? (
                       <AttachmentChips attachments={m.attachments} />
                     ) : null}
-                    {thinking ? <TypingDots /> : m.content}
+                    {thinking ? (
+                      <TypingDots />
+                    ) : m.role === "assistant" ? (
+                      // Render markdown so **bold**/*italic*/lists/code show as
+                      // formatting, not raw asterisks. Caret while streaming.
+                      <Markdown
+                        content={m.content}
+                        streaming={isLastAssistant && activeStreaming}
+                      />
+                    ) : (
+                      m.content
+                    )}
                   </div>
                 </div>
               );
