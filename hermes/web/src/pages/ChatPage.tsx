@@ -25,6 +25,7 @@
  */
 import {
   ArrowUp,
+  Command,
   FileText,
   MessageSquarePlus,
   PanelLeft,
@@ -36,6 +37,8 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Markdown } from "@/components/Markdown";
+import { GatewayClient } from "@/lib/gatewayClient";
+import { executeSlash } from "@/lib/slashExec";
 import { cn } from "@/lib/utils";
 
 type Role = "user" | "assistant";
@@ -53,6 +56,9 @@ interface ChatMessage {
   role: Role;
   content: string;
   attachments?: Attachment[];
+  /** Output from a slash command run via the command menu. Shown in the
+   *  transcript but NEVER sent to the model (kept out of the request history). */
+  system?: boolean;
 }
 interface Conversation {
   id: string;
@@ -68,6 +74,22 @@ const CHAT_COMPLETIONS_URL = "/v1/chat/completions";
 const MODEL = "hermes-agent";
 const GREETING =
   "Hi, I'm Diffract Agent — running safely for your business. How can I help?";
+
+interface SlashCommand {
+  command: string; // includes the leading slash, e.g. "/reload-mcp"
+  description: string;
+}
+// Shown when the gateway's own completion list is unavailable — the handful of
+// gateway commands that are actually useful from the web chat.
+const FALLBACK_COMMANDS: SlashCommand[] = [
+  { command: "/reload-mcp", description: "Reload MCP servers and pull their tools into the agent" },
+  { command: "/tools", description: "List the tools currently available to the agent" },
+  { command: "/skills", description: "List the skills currently loaded" },
+  { command: "/status", description: "Show agent and sandbox status" },
+  { command: "/usage", description: "Show token usage for this session" },
+  { command: "/model", description: "Show the active model" },
+  { command: "/help", description: "List the available slash commands" },
+];
 
 // Attachment limits.
 const MAX_ATTACHMENTS = 6;
@@ -265,6 +287,17 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
     activeIdRef.current = activeId;
   }, [activeId]);
 
+  // Slash-command menu state + a lazily-connected gateway client (only opened
+  // when the user opens the menu or runs a command).
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [commands, setCommands] = useState<SlashCommand[]>([]);
+  const [cmdsLoading, setCmdsLoading] = useState(false);
+  const [runningCmd, setRunningCmd] = useState<string | null>(null);
+  const gwRef = useRef<GatewayClient | null>(null);
+  const gwSessionRef = useRef<string>("");
+  const cmdsLoadedRef = useRef(false);
+  useEffect(() => () => gwRef.current?.close(), []);
+
   const active = conversations.find((c) => c.id === activeId) || null;
   const messages = active?.messages ?? [];
   const activeStreaming = activeId != null && streamingIds.has(activeId);
@@ -390,13 +423,11 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
     setActiveId((cur) => (cur === id ? null : cur));
   }, []);
 
-  const send = useCallback(async () => {
-    const text = input.trim();
-    const attachments = pending;
+  const sendMessage = useCallback(async (text: string, attachments: Attachment[]) => {
     if (!text && attachments.length === 0) return;
 
     // Resolve the target conversation; block only if THAT conversation is busy.
-    let cid = activeId;
+    let cid = activeIdRef.current;
     if (cid && streamingIds.has(cid)) return;
     if (!cid || !conversations.some((c) => c.id === cid)) {
       cid = uid();
@@ -411,8 +442,6 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
     }
 
     setError(null);
-    setInput("");
-    setPending([]);
 
     const base = conversations.find((c) => c.id === cid)?.messages ?? [];
     const userMsg: ChatMessage = {
@@ -438,7 +467,9 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
         body: JSON.stringify({
           model: MODEL,
           stream: true,
-          messages: history.map((m) => ({ role: m.role, content: toRequestContent(m) })),
+          messages: history
+            .filter((m) => !m.system)
+            .map((m) => ({ role: m.role, content: toRequestContent(m) })),
         }),
         signal: ac.signal,
       });
@@ -505,7 +536,121 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
         return n;
       });
     }
-  }, [input, pending, activeId, conversations, streamingIds, updateConv]);
+  }, [conversations, streamingIds, updateConv]);
+
+  const send = useCallback(() => {
+    const text = input.trim();
+    const attachments = pending;
+    if (!text && attachments.length === 0) return;
+    if (activeId && streamingIds.has(activeId)) return;
+    setInput("");
+    setPending([]);
+    void sendMessage(text, attachments);
+  }, [input, pending, activeId, streamingIds, sendMessage]);
+
+  // --- Slash-command menu --------------------------------------------------
+  // The web chat is stateless (client-side history), but the in-sandbox gateway
+  // still speaks the TUI JSON-RPC dialect, so slash commands (/reload-mcp, /tools,
+  // …) run there exactly as they do in the Terminal tab.
+  const ensureGateway = useCallback(async (): Promise<GatewayClient> => {
+    let gw = gwRef.current;
+    if (!gw) {
+      gw = new GatewayClient();
+      gwRef.current = gw;
+    }
+    if (gw.state !== "open") await gw.connect();
+    if (!gwSessionRef.current) {
+      try {
+        const r = await gw.request<{ session_id?: string }>("session.create");
+        if (r?.session_id) gwSessionRef.current = r.session_id;
+      } catch {
+        /* some commands are session-less — run with an empty session id */
+      }
+    }
+    return gw;
+  }, []);
+
+  const loadCommands = useCallback(async () => {
+    setCmdsLoading(true);
+    try {
+      const gw = await ensureGateway();
+      const r = await gw.request<{
+        items?: { display?: string; text?: string; meta?: string }[];
+      }>("complete.slash", { text: "/" });
+      const items = (r?.items ?? [])
+        .map((it) => ({
+          command: (it.display || (it.text ? `/${it.text}` : "")).trim(),
+          description: (it.meta ?? "").trim(),
+        }))
+        .filter((c) => c.command.startsWith("/"));
+      if (items.length) {
+        setCommands(items);
+        cmdsLoadedRef.current = true;
+      } else {
+        setCommands(FALLBACK_COMMANDS);
+      }
+    } catch {
+      setCommands((prev) => (prev.length ? prev : FALLBACK_COMMANDS));
+    } finally {
+      setCmdsLoading(false);
+    }
+  }, [ensureGateway]);
+
+  const openMenu = useCallback(() => {
+    const next = !menuOpen;
+    setMenuOpen(next);
+    if (next && !cmdsLoadedRef.current && !cmdsLoading) void loadCommands();
+  }, [menuOpen, cmdsLoading, loadCommands]);
+
+  const runCommand = useCallback(
+    async (command: string) => {
+      setMenuOpen(false);
+      setRunningCmd(command);
+
+      // Make sure there's a conversation to show the command output in.
+      let cid = activeIdRef.current;
+      if (!cid || !conversations.some((c) => c.id === cid)) {
+        cid = uid();
+        const conv: Conversation = {
+          id: cid,
+          title: command,
+          messages: [],
+          updatedAt: Date.now(),
+        };
+        setConversations((prev) => [conv, ...prev]);
+        setActiveId(cid);
+      }
+      const targetId = cid;
+      const appendSystem = (content: string) =>
+        updateConv(targetId, (c) => ({
+          ...c,
+          messages: [
+            ...c.messages,
+            { role: "assistant" as const, content, system: true },
+          ],
+          updatedAt: Date.now(),
+        }));
+
+      appendSystem(`▶ ${command}`);
+      try {
+        const gw = await ensureGateway();
+        await executeSlash({
+          command,
+          sessionId: gwSessionRef.current,
+          gw,
+          callbacks: {
+            sys: (text) => appendSystem(text),
+            send: (message) => sendMessage(message, []),
+          },
+        });
+      } catch (e) {
+        appendSystem(`error: ${e instanceof Error ? e.message : String(e)}`);
+      } finally {
+        setRunningCmd(null);
+      }
+    },
+    [conversations, ensureGateway, sendMessage, updateConv],
+  );
 
   const stop = useCallback(() => {
     if (activeId) abortControllers.current.get(activeId)?.abort();
@@ -598,6 +743,15 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
             )}
 
             {messages.map((m, i) => {
+              if (m.system) {
+                return (
+                  <div key={i} className="flex justify-start">
+                    <div className="max-w-full overflow-x-auto whitespace-pre-wrap break-words rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2 font-mono text-xs leading-relaxed text-text-secondary">
+                      {m.content}
+                    </div>
+                  </div>
+                );
+              }
               const isLastAssistant =
                 m.role === "assistant" && i === messages.length - 1;
               const thinking = isLastAssistant && activeStreaming && !m.content;
@@ -644,7 +798,58 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
         </div>
 
         <div className="border-t border-white/10 px-4 py-3">
-          <div className="mx-auto w-full max-w-3xl">
+          <div className="relative mx-auto w-full max-w-3xl">
+            {/* Slash-command menu popover */}
+            {menuOpen && (
+              <>
+                <div
+                  className="fixed inset-0 z-10"
+                  onClick={() => setMenuOpen(false)}
+                />
+                <div className="absolute bottom-full left-0 z-20 mb-2 w-80 max-w-[calc(100%-1rem)] overflow-hidden rounded-xl border border-border bg-popover shadow-2xl">
+                  <div className="border-b border-border px-3 py-2">
+                    <p className="text-sm font-medium text-text-primary">
+                      Slash commands
+                    </p>
+                    <p className="text-xs text-text-tertiary">
+                      Click a command to run it in the sandbox.
+                    </p>
+                  </div>
+                  <div className="max-h-72 overflow-y-auto p-1.5">
+                    {cmdsLoading && commands.length === 0 ? (
+                      <p className="px-2 py-3 text-xs text-text-tertiary">
+                        Loading commands…
+                      </p>
+                    ) : (
+                      commands.map((c) => (
+                        <button
+                          key={c.command}
+                          type="button"
+                          onClick={() => void runCommand(c.command)}
+                          disabled={runningCmd != null}
+                          className="flex w-full flex-col gap-0.5 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          <span className="flex items-baseline justify-between gap-2">
+                            <span className="font-mono text-sm text-text-primary">
+                              {c.command}
+                            </span>
+                            <span className="shrink-0 text-[0.6rem] uppercase tracking-wide text-text-tertiary">
+                              click to run command
+                            </span>
+                          </span>
+                          {c.description && (
+                            <span className="text-xs text-text-tertiary">
+                              {c.description}
+                            </span>
+                          )}
+                        </button>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </>
+            )}
+
             {/* Pending attachment chips */}
             {pending.length > 0 && (
               <div className="mb-2 flex flex-wrap gap-1.5">
@@ -697,6 +902,22 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
                 className="hidden"
                 onChange={onPick}
               />
+              <button
+                type="button"
+                onClick={openMenu}
+                aria-label="Slash commands"
+                title="Run a slash command in the sandbox"
+                className={cn(
+                  "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border text-text-secondary transition-colors hover:text-text-primary",
+                  menuOpen
+                    ? "border-white/30 bg-white/5 text-text-primary"
+                    : "border-white/10 hover:border-white/30",
+                )}
+              >
+                <Command
+                  className={cn("h-4 w-4", runningCmd && "animate-pulse")}
+                />
+              </button>
               <button
                 type="button"
                 onClick={() => fileRef.current?.click()}
