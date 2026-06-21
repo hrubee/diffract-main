@@ -10,18 +10,12 @@
  * the user switch between past conversations from the sidebar. History is resent
  * to the gateway each turn (OpenAI-style).
  *
- * Slash commands: typing "/" opens the SlashPopover (completions over the
- * tui_gateway WebSocket), and submitting a "/command" runs it through
- * `executeSlash` — the same `slash.exec` / `command.dispatch` path the Hermes TUI
- * uses, so commands like /help, /model, /tools, /status work for real. Command
- * lines + their output are shown inline but flagged `local` so they're NEVER
- * resent to the model as conversation history.
- *
  * Attachments: users can attach images and text/data files. Images ride along as
  * OpenAI `image_url` data-URI content blocks (the model's vision path). Text/data
  * files (CSV, JSON, code, logs, MD, …) are read client-side and inlined into the
- * message text, so the agent reads them directly with any model. Heavy payloads
- * are stripped from the localStorage copy so persistence never blows the quota.
+ * message text, so the agent reads them directly with any model — no server upload
+ * needed. Large image/text payloads are kept in memory only (stripped from the
+ * localStorage copy) so history persistence never blows the storage quota.
  *
  * Streaming is tracked PER conversation (each send owns its AbortController, keyed
  * by conversation id), so switching conversations mid-reply does NOT cancel the
@@ -41,9 +35,6 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { GatewayClient } from "@/lib/gatewayClient";
-import { executeSlash } from "@/lib/slashExec";
-import { SlashPopover, type SlashPopoverHandle } from "@/components/SlashPopover";
 import { cn } from "@/lib/utils";
 
 type Role = "user" | "assistant";
@@ -61,9 +52,6 @@ interface ChatMessage {
   role: Role;
   content: string;
   attachments?: Attachment[];
-  // Local-only line (a slash command echo or its output) — displayed but never
-  // sent to the model as conversation history.
-  local?: boolean;
 }
 interface Conversation {
   id: string;
@@ -101,11 +89,6 @@ function uid(): string {
   } catch {
     return `c-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   }
-}
-
-// A leading "/" is a command — but NOT a filesystem path like /Users/x or "/ ".
-function isSlashCommand(text: string): boolean {
-  return /^\/[a-zA-Z][\w-]*(\s|$)/.test(text);
 }
 
 function classifyFile(file: File): AttachmentKind | "unsupported" {
@@ -269,13 +252,10 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
   const [streamingIds, setStreamingIds] = useState<Set<string>>(() => new Set());
   const [error, setError] = useState<string | null>(null);
   const [showList, setShowList] = useState(true);
-  // tui_gateway connection for slash commands (null until/unless connected).
-  const [gw, setGw] = useState<GatewayClient | null>(null);
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
-  const popoverRef = useRef<SlashPopoverHandle | null>(null);
   // One AbortController per in-flight conversation, so streams are independent.
   const abortControllers = useRef<Map<string, AbortController>>(new Map());
   // Latest activeId, for async callbacks that must not read a stale closure.
@@ -283,49 +263,10 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
   useEffect(() => {
     activeIdRef.current = activeId;
   }, [activeId]);
-  // Latest conversations, for the slash `send` callback that needs current state.
-  const conversationsRef = useRef(conversations);
-  useEffect(() => {
-    conversationsRef.current = conversations;
-  }, [conversations]);
-  const gwRef = useRef<GatewayClient | null>(null);
-  const sessionIdRef = useRef<string>("");
 
   const active = conversations.find((c) => c.id === activeId) || null;
   const messages = active?.messages ?? [];
   const activeStreaming = activeId != null && streamingIds.has(activeId);
-
-  // Connect to the tui_gateway for slash commands. Best-effort: if it fails
-  // (no session token / WS unreachable), commands are simply unavailable and the
-  // regular chat keeps working.
-  useEffect(() => {
-    let cancelled = false;
-    const client = new GatewayClient();
-    client
-      .connect()
-      .then(async () => {
-        if (cancelled) {
-          client.close();
-          return;
-        }
-        gwRef.current = client;
-        setGw(client);
-        try {
-          const r = await client.request<{ session_id: string }>("session.create", {});
-          sessionIdRef.current = r?.session_id ?? "";
-        } catch {
-          /* session-less commands still work */
-        }
-      })
-      .catch(() => {
-        /* gateway unavailable — slash commands disabled */
-      });
-    return () => {
-      cancelled = true;
-      gwRef.current = null;
-      client.close();
-    };
-  }, []);
 
   // Persist on every change so reloads (and sandbox recreations) keep history.
   useEffect(() => {
@@ -448,99 +389,6 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
     setActiveId((cur) => (cur === id ? null : cur));
   }, []);
 
-  // Stream one model turn into conversation `cid`. `history` is the full message
-  // list to send (local-only slash lines are filtered out before the request).
-  const streamTurn = useCallback(
-    async (cid: string, history: ChatMessage[]) => {
-      updateConv(cid, (c) => ({
-        ...c,
-        title: !c.title || c.title === "New chat" ? titleFrom(history) : c.title,
-        messages: [...history, { role: "assistant", content: "" }],
-        updatedAt: Date.now(),
-      }));
-      setStreamingIds((prev) => new Set(prev).add(cid));
-
-      const ac = new AbortController();
-      abortControllers.current.set(cid, ac);
-      try {
-        const res = await fetch(CHAT_COMPLETIONS_URL, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            model: MODEL,
-            stream: true,
-            messages: history
-              .filter((m) => !m.local)
-              .map((m) => ({ role: m.role, content: toRequestContent(m) })),
-          }),
-          signal: ac.signal,
-        });
-        if (!res.ok || !res.body) throw new Error(`Request failed (HTTP ${res.status})`);
-
-        const reader = res.body.getReader();
-        const decoder = new TextDecoder();
-        let buf = "";
-        let acc = "";
-        for (;;) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          buf += decoder.decode(value, { stream: true });
-          const lines = buf.split("\n");
-          buf = lines.pop() ?? "";
-          for (const raw of lines) {
-            const line = raw.trim();
-            if (!line.startsWith("data:")) continue;
-            const payload = line.slice(5).trim();
-            if (!payload || payload === "[DONE]") continue;
-            try {
-              const json = JSON.parse(payload);
-              const delta = json?.choices?.[0]?.delta?.content;
-              if (typeof delta === "string" && delta) {
-                acc += delta;
-                updateConv(cid, (c) => {
-                  const msgs = c.messages.slice();
-                  msgs[msgs.length - 1] = { role: "assistant", content: acc };
-                  return { ...c, messages: msgs, updatedAt: Date.now() };
-                });
-              }
-            } catch {
-              /* keep-alive / partial frame */
-            }
-          }
-        }
-        if (!acc) {
-          updateConv(cid, (c) => {
-            const msgs = c.messages.slice();
-            msgs[msgs.length - 1] = { role: "assistant", content: "(no response)" };
-            return { ...c, messages: msgs };
-          });
-        }
-      } catch (e) {
-        const aborted = e instanceof DOMException && e.name === "AbortError";
-        if (!aborted) {
-          if (activeIdRef.current === cid) {
-            setError(e instanceof Error ? e.message : "Something went wrong.");
-          }
-          updateConv(cid, (c) => {
-            const msgs = c.messages.slice();
-            const last = msgs[msgs.length - 1];
-            if (last && last.role === "assistant" && !last.content) msgs.pop();
-            return { ...c, messages: msgs };
-          });
-        }
-      } finally {
-        abortControllers.current.delete(cid);
-        setStreamingIds((prev) => {
-          if (!prev.has(cid)) return prev;
-          const n = new Set(prev);
-          n.delete(cid);
-          return n;
-        });
-      }
-    },
-    [updateConv],
-  );
-
   const send = useCallback(async () => {
     const text = input.trim();
     const attachments = pending;
@@ -565,47 +413,98 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
     setInput("");
     setPending([]);
 
-    // Slash command (no attachments) → run it through the gateway and show its
-    // output inline. The command + output are local-only (never sent to the model).
-    if (attachments.length === 0 && isSlashCommand(text) && gwRef.current) {
-      const target = cid;
-      updateConv(target, (c) => ({
-        ...c,
-        title: !c.title || c.title === "New chat" ? text : c.title,
-        messages: [...c.messages, { role: "user", content: text, local: true }],
-        updatedAt: Date.now(),
-      }));
-      const sys = (out: string) =>
-        updateConv(target, (c) => ({
-          ...c,
-          messages: [...c.messages, { role: "assistant", content: out, local: true }],
-          updatedAt: Date.now(),
-        }));
-      const doSend = async (message: string) => {
-        const cur = conversationsRef.current.find((c) => c.id === target)?.messages ?? [];
-        await streamTurn(target, [...cur, { role: "user", content: message }]);
-      };
-      try {
-        await executeSlash({
-          command: text,
-          sessionId: sessionIdRef.current,
-          gw: gwRef.current,
-          callbacks: { sys, send: doSend },
-        });
-      } catch (e) {
-        sys(`error: ${e instanceof Error ? e.message : String(e)}`);
-      }
-      return;
-    }
-
     const base = conversations.find((c) => c.id === cid)?.messages ?? [];
     const userMsg: ChatMessage = {
       role: "user",
       content: text,
       ...(attachments.length ? { attachments } : {}),
     };
-    await streamTurn(cid, [...base, userMsg]);
-  }, [input, pending, activeId, conversations, streamingIds, updateConv, streamTurn]);
+    const history: ChatMessage[] = [...base, userMsg];
+    updateConv(cid, (c) => ({
+      ...c,
+      title: !c.title || c.title === "New chat" ? titleFrom(history) : c.title,
+      messages: [...history, { role: "assistant", content: "" }],
+      updatedAt: Date.now(),
+    }));
+    setStreamingIds((prev) => new Set(prev).add(cid));
+
+    const ac = new AbortController();
+    abortControllers.current.set(cid, ac);
+    try {
+      const res = await fetch(CHAT_COMPLETIONS_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: MODEL,
+          stream: true,
+          messages: history.map((m) => ({ role: m.role, content: toRequestContent(m) })),
+        }),
+        signal: ac.signal,
+      });
+      if (!res.ok || !res.body) throw new Error(`Request failed (HTTP ${res.status})`);
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+      let acc = "";
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split("\n");
+        buf = lines.pop() ?? "";
+        for (const raw of lines) {
+          const line = raw.trim();
+          if (!line.startsWith("data:")) continue;
+          const payload = line.slice(5).trim();
+          if (!payload || payload === "[DONE]") continue;
+          try {
+            const json = JSON.parse(payload);
+            const delta = json?.choices?.[0]?.delta?.content;
+            if (typeof delta === "string" && delta) {
+              acc += delta;
+              updateConv(cid, (c) => {
+                const msgs = c.messages.slice();
+                msgs[msgs.length - 1] = { role: "assistant", content: acc };
+                return { ...c, messages: msgs, updatedAt: Date.now() };
+              });
+            }
+          } catch {
+            /* keep-alive / partial frame */
+          }
+        }
+      }
+      if (!acc) {
+        updateConv(cid, (c) => {
+          const msgs = c.messages.slice();
+          msgs[msgs.length - 1] = { role: "assistant", content: "(no response)" };
+          return { ...c, messages: msgs };
+        });
+      }
+    } catch (e) {
+      const aborted = e instanceof DOMException && e.name === "AbortError";
+      if (!aborted) {
+        // Surface the error only when the user is looking at this conversation.
+        if (activeIdRef.current === cid) {
+          setError(e instanceof Error ? e.message : "Something went wrong.");
+        }
+        updateConv(cid, (c) => {
+          const msgs = c.messages.slice();
+          const last = msgs[msgs.length - 1];
+          if (last && last.role === "assistant" && !last.content) msgs.pop();
+          return { ...c, messages: msgs };
+        });
+      }
+    } finally {
+      abortControllers.current.delete(cid);
+      setStreamingIds((prev) => {
+        if (!prev.has(cid)) return prev;
+        const n = new Set(prev);
+        n.delete(cid);
+        return n;
+      });
+    }
+  }, [input, pending, activeId, conversations, streamingIds, updateConv]);
 
   const stop = useCallback(() => {
     if (activeId) abortControllers.current.get(activeId)?.abort();
@@ -692,7 +591,7 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
               <div className="mt-12 text-center">
                 <p className="text-base text-text-primary">{GREETING}</p>
                 <p className="mt-2 text-sm text-text-tertiary">
-                  Ask a question, attach a file, or type <span className="font-mono">/</span> for commands.
+                  Ask a question, attach a file, or describe a task to get started.
                 </p>
               </div>
             )}
@@ -711,14 +610,10 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
                 >
                   <div
                     className={cn(
-                      "max-w-[85%] whitespace-pre-wrap break-words rounded-2xl px-4 py-2.5 text-sm leading-relaxed",
-                      m.local
-                        ? "border border-white/10 bg-white/[0.02] font-mono text-xs text-text-secondary"
-                        : "text-text-primary",
-                      !m.local &&
-                        (m.role === "user"
-                          ? "bg-white/10"
-                          : "border border-white/10 bg-white/[0.04]"),
+                      "max-w-[85%] whitespace-pre-wrap break-words rounded-2xl px-4 py-2.5 text-sm leading-relaxed text-text-primary",
+                      m.role === "user"
+                        ? "bg-white/10"
+                        : "border border-white/10 bg-white/[0.04]",
                     )}
                   >
                     {m.attachments?.length ? (
@@ -737,10 +632,7 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
         </div>
 
         <div className="border-t border-white/10 px-4 py-3">
-          <div className="relative mx-auto w-full max-w-3xl">
-            {/* Slash-command autocomplete (renders above the composer) */}
-            <SlashPopover ref={popoverRef} input={input} gw={gw} onApply={setInput} />
-
+          <div className="mx-auto w-full max-w-3xl">
             {/* Pending attachment chips */}
             {pending.length > 0 && (
               <div className="mb-2 flex flex-wrap gap-1.5">
@@ -807,15 +699,13 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => {
-                  // Let the slash popover consume arrows/Tab/Escape first.
-                  if (popoverRef.current?.handleKey(e)) return;
                   if (e.key === "Enter" && !e.shiftKey) {
                     e.preventDefault();
                     void send();
                   }
                 }}
                 rows={1}
-                placeholder="Message Diffract Agent…  (/ for commands)"
+                placeholder="Message Diffract Agent…"
                 className="max-h-40 min-h-[2.75rem] flex-1 resize-none rounded-xl border border-white/10 bg-white/5 px-3.5 py-2.5 text-sm text-text-primary placeholder:text-text-tertiary focus:border-midground focus:outline-none"
               />
               {activeStreaming ? (
