@@ -205,7 +205,128 @@ function isHermesPolicyPath(policyPath: string): boolean {
   return /(^|\/)agents\/hermes\/policy-additions\.yaml$/.test(normalized);
 }
 
+/**
+ * Allow the connected MCP server hosts in the CREATE-TIME policy, so MCP egress is
+ * active BEFORE the chat daemon's startup MCP discovery. Without this the daemon
+ * discovers MCP at startup — before the deploy flow applies per-server egress — and
+ * registers 0 tools; and the api_server (chat) agent only picks up MCP tools at
+ * startup, so a later reload can't help it.
+ *
+ * Hosts are derived from NEMOCLAW_MCP_SERVERS_B64 (the create-time mcp_servers config
+ * the deploy route already passes): each enabled server's URL (`url`, or the last
+ * `args` entry for command/bridge servers). Scoped to the python binaries that run the
+ * stdio bridge (diffract-mcp-bridge.py) — the daemon's OWN in-process egress is
+ * mis-attributed (binary=-) and 403'd, but the bridge SUBPROCESS is attributed
+ * correctly. See docs/bugs/openshell-egress-attribution-mcp-403.md.
+ */
+function buildMcpEgressInjector(): ((content: string) => string) | null {
+  const b64 = process.env.NEMOCLAW_MCP_SERVERS_B64;
+  if (!b64 || b64 === "e30=") return null;
+  let servers: unknown;
+  try {
+    servers = JSON.parse(Buffer.from(b64, "base64").toString("utf-8"));
+  } catch {
+    return null;
+  }
+  if (!isYamlObject(servers)) return null;
+
+  const seen = new Set<string>();
+  const endpoints: Array<{ host: string; port: number }> = [];
+  for (const cfg of Object.values(servers)) {
+    if (!isYamlObject(cfg) || cfg.enabled === false) continue;
+    const args = (cfg as Record<string, unknown>).args;
+    const url =
+      typeof cfg.url === "string"
+        ? (cfg.url as string)
+        : Array.isArray(args) && typeof args[args.length - 1] === "string"
+          ? (args[args.length - 1] as string)
+          : "";
+    if (!/^https?:\/\//.test(url)) continue;
+    try {
+      const u = new URL(url);
+      const port = u.port ? parseInt(u.port, 10) : u.protocol === "https:" ? 443 : 80;
+      const key = `${u.hostname}:${port}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        endpoints.push({ host: u.hostname, port });
+      }
+    } catch {
+      /* skip malformed url */
+    }
+  }
+  if (endpoints.length === 0) return null;
+
+  return (content: string): string => {
+    const parsed = YAML.parse(content);
+    if (!isYamlObject(parsed)) return content;
+    const net = isYamlObject(parsed.network_policies)
+      ? (parsed.network_policies as Record<string, unknown>)
+      : {};
+    net.diffract_mcp = {
+      endpoints: endpoints.map((e) => ({
+        host: e.host,
+        port: e.port,
+        protocol: "rest",
+        enforcement: "enforce",
+        access: "full",
+      })),
+      binaries: [
+        { path: "/usr/bin/python3.13" },
+        { path: "/opt/hermes/.venv/bin/python3.13" },
+        { path: "/opt/hermes/.venv/bin/python3" },
+        { path: "/opt/hermes/.venv/bin/python" },
+      ],
+    };
+    parsed.network_policies = net;
+    return YAML.stringify(parsed);
+  };
+}
+
 export function prepareInitialSandboxCreatePolicy(
+  basePolicyPath: string,
+  activeMessagingChannels: string[],
+  options: {
+    directGpu?: boolean;
+    dockerGpuPatch?: boolean;
+    additionalPresets?: string[];
+    agentName?: string | null;
+  } = {},
+): InitialSandboxPolicy {
+  const base = prepareInitialSandboxCreatePolicyBase(
+    basePolicyPath,
+    activeMessagingChannels,
+    options,
+  );
+  const inject = buildMcpEgressInjector();
+  if (!inject) return base;
+  let content: string;
+  try {
+    content = fs.readFileSync(base.policyPath, "utf-8");
+  } catch {
+    return base;
+  }
+  const injected = inject(content);
+  if (injected === content) return base;
+  const policyPath = secureTempFile("nemoclaw-mcp-policy", ".yaml");
+  fs.writeFileSync(policyPath, injected, { encoding: "utf-8", mode: 0o600 });
+  const prevCleanup = base.cleanup;
+  return {
+    policyPath,
+    appliedPresets: base.appliedPresets,
+    cleanup: () => {
+      let ok = true;
+      try {
+        cleanupTempDir(policyPath, "nemoclaw-mcp-policy");
+      } catch {
+        ok = false;
+      }
+      if (prevCleanup) ok = prevCleanup() && ok;
+      return ok;
+    },
+  };
+}
+
+function prepareInitialSandboxCreatePolicyBase(
   basePolicyPath: string,
   activeMessagingChannels: string[],
   options: {
