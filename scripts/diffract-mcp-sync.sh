@@ -90,8 +90,10 @@ if os.environ.get("MHEADER"):
              "headers": {os.environ["MHEADER"]: os.environ["MSECRET"]}}
 else:
     # URL-token servers run via the stdio bridge subprocess (correct egress attribution).
+    # Long timeouts let startup discovery outlast OpenShell's create-policy enforcement delay.
     entry = {"command": os.environ["MPY"],
              "args": [os.environ["MBRIDGE"], os.environ["MURL"]],
+             "connect_timeout": 200, "timeout": 200,
              "enabled": True}
 cfg.setdefault("mcp_servers", {})[os.environ["MNAME"]] = entry
 with open(p, "w") as f:
@@ -129,8 +131,9 @@ PY
           "$(jq -nc --arg v "$HEADER" '$v')" "$(jq -nc --arg v "$SECRET" '$v')"
       else
         # URL-token: command-based (stdio bridge subprocess) so create-time discovery in the
-        # daemon reaches the server with correct egress attribution.
-        printf '%s:{"command":%s,"args":[%s,%s],"enabled":true}' \
+        # daemon reaches the server with correct egress attribution. connect_timeout/timeout
+        # 200s let startup discovery outlast OpenShell's ~120s create-policy enforcement delay.
+        printf '%s:{"command":%s,"args":[%s,%s],"connect_timeout":200,"timeout":200,"enabled":true}' \
           "$(jq -nc --arg v "$NAME" '$v')" "$(jq -nc --arg v "$MCP_PYTHON" '$v')" \
           "$(jq -nc --arg v "$MCP_BRIDGE" '$v')" "$(jq -nc --arg v "$URL" '$v')"
       fi

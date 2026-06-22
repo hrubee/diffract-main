@@ -33,8 +33,12 @@ from mcp.server.lowlevel import Server
 from mcp.server.stdio import stdio_server
 
 URL = sys.argv[1] if len(sys.argv) > 1 else ""
-# ~60s of retry covers the gap between daemon startup and the deploy flow applying egress.
-_RETRIES = 30
+# Retry upstream long enough to outlast the create-time egress-enforcement delay:
+# OpenShell enforces the create policy ~120s after sandbox create, while the daemon
+# discovers MCP at startup. ~180s of retry (paired with connect_timeout/timeout: 200
+# on the server config) lets the bridge connect the moment egress goes live, so the
+# daemon registers the tools AT STARTUP and the chat (api_server) agent gets them.
+_RETRIES = 90
 _DELAY = 2.0
 
 
