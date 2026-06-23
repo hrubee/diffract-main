@@ -1,4 +1,58 @@
 {
   "$comment": "Diffract universal tool registry. Each entry defines a third-party CLI the agent can use, across four layers. INSTALL fields (repo/ref/kind/patch/build/entry/bin) are consumed at image-build time by install-diffract-tools.sh to bake the tool into /sandbox/.diffract-tools/<name> and put <bin> on the agent PATH. CONNECT fields (secretEnv/configEnv/apiHosts/binaries/authHeader) are consumed at runtime by diffract-tool-connect.sh to wire the tool's credentials securely (OpenShell generic provider -> placeholder in sandbox -> real secret injected at egress; egress allowlisted to apiHosts, attributed to binaries). ADVERTISE fields (the optional 'skill' object: name/title/summary/tags/examples) are consumed at image-build time by advertise-diffract-tools.sh to emit a hermes SKILL.md under /sandbox/.hermes/skills/diffract-tools/<name>, so the agent DISCOVERS the tool in its skill catalog and knows it is pre-authenticated (install/connect make a tool runnable; advertise makes the agent aware of it). 'patch' is an optional shell command run after clone and before build, in the tool dir — use it for proxy-compat fixups (the sandbox routes egress through an MITM proxy; node tools must use undici/fetch, so an axios tool needs adapter:'fetch'). Add a tool = add an entry here; no Dockerfile edit.",
-  "tools": []
+  "tools": [
+    {
+      "name": "facebook",
+      "description": "Facebook & Instagram Graph API — read and reply to Page/Instagram comments and send DMs. Pre-authenticated via the operator's Facebook login; install-less (the agent calls the Graph API with curl).",
+      "transport": "rest",
+      "bin": "curl",
+      "binaries": ["/usr/bin/curl"],
+      "secretEnv": "FACEBOOK_PAGE_TOKEN",
+      "apiHosts": ["graph.facebook.com:443", "graph.instagram.com:443"],
+      "authHeader": "Authorization: Bearer",
+      "skill": {
+        "name": "facebook",
+        "title": "Facebook & Instagram (Graph API)",
+        "summary": "Read and respond to Facebook Page and Instagram comments and direct messages. Pre-authenticated: a Facebook Page access token is injected at the network layer. Call the Graph API with curl — list/reply to comments, send Messenger and Instagram DMs.",
+        "tags": ["facebook", "instagram", "messenger", "social", "comments", "dms"],
+        "examples": [
+          "# The token in $FACEBOOK_PAGE_TOKEN is an injected placeholder — use it verbatim, never print it,",
+          "# and never ask the user for it. It is a Facebook PAGE token. Always use curl (egress is allowed",
+          "# only for curl). Resource IDs (page/post/comment/media) go in the URL PATH — discover them from",
+          "# the calls below rather than guessing.",
+          "",
+          "# STEP 1 — identify your page (a page token's /me IS the page):",
+          "curl -sS -H \"Authorization: Bearer $FACEBOOK_PAGE_TOKEN\" \"https://graph.facebook.com/v21.0/me?fields=id,name\"",
+          "",
+          "# --- FACEBOOK PAGE — comments ---",
+          "# List recent posts (grab a POST_ID):",
+          "curl -sS -H \"Authorization: Bearer $FACEBOOK_PAGE_TOKEN\" \"https://graph.facebook.com/v21.0/me/feed?fields=id,message,created_time&limit=10\"",
+          "# List comments on a post:",
+          "curl -sS -H \"Authorization: Bearer $FACEBOOK_PAGE_TOKEN\" \"https://graph.facebook.com/v21.0/<POST_ID>/comments?fields=id,message,from,created_time\"",
+          "# Reply to a comment:",
+          "curl -sS -X POST -H \"Authorization: Bearer $FACEBOOK_PAGE_TOKEN\" \"https://graph.facebook.com/v21.0/<COMMENT_ID>/comments\" --data-urlencode \"message=Thanks for reaching out!\"",
+          "# Like a comment:",
+          "curl -sS -X POST -H \"Authorization: Bearer $FACEBOOK_PAGE_TOKEN\" \"https://graph.facebook.com/v21.0/<COMMENT_ID>/likes\"",
+          "",
+          "# --- FACEBOOK PAGE — direct messages (Messenger) ---",
+          "# List recent conversations (each has a participant PSID):",
+          "curl -sS -H \"Authorization: Bearer $FACEBOOK_PAGE_TOKEN\" \"https://graph.facebook.com/v21.0/me/conversations?fields=participants,updated_time,snippet&limit=10\"",
+          "# Reply to a user who messaged the page (24h window; messaging_type=RESPONSE):",
+          "curl -sS -X POST -H \"Authorization: Bearer $FACEBOOK_PAGE_TOKEN\" \"https://graph.facebook.com/v21.0/me/messages\" --data-urlencode 'recipient={\"id\":\"<PSID>\"}' --data-urlencode 'messaging_type=RESPONSE' --data-urlencode 'message={\"text\":\"Hi! How can we help?\"}'",
+          "",
+          "# --- INSTAGRAM (Business/Creator account linked to the page) ---",
+          "# Get the linked IG account id + username:",
+          "curl -sS -H \"Authorization: Bearer $FACEBOOK_PAGE_TOKEN\" \"https://graph.facebook.com/v21.0/me?fields=instagram_business_account{id,username}\"",
+          "# List IG media (grab an IG_MEDIA_ID):",
+          "curl -sS -H \"Authorization: Bearer $FACEBOOK_PAGE_TOKEN\" \"https://graph.facebook.com/v21.0/<IG_USER_ID>/media?fields=id,caption,comments_count&limit=10\"",
+          "# List comments on an IG media:",
+          "curl -sS -H \"Authorization: Bearer $FACEBOOK_PAGE_TOKEN\" \"https://graph.facebook.com/v21.0/<IG_MEDIA_ID>/comments?fields=id,text,username,timestamp\"",
+          "# Reply to an IG comment:",
+          "curl -sS -X POST -H \"Authorization: Bearer $FACEBOOK_PAGE_TOKEN\" \"https://graph.facebook.com/v21.0/<IG_COMMENT_ID>/replies\" --data-urlencode \"message=Thanks so much!\"",
+          "# Send an Instagram direct message (recipient id from a conversation/webhook):",
+          "curl -sS -X POST -H \"Authorization: Bearer $FACEBOOK_PAGE_TOKEN\" \"https://graph.facebook.com/v21.0/<IG_USER_ID>/messages\" --data-urlencode 'recipient={\"id\":\"<IGSID>\"}' --data-urlencode 'message={\"text\":\"Hi from Instagram!\"}'"
+        ]
+      }
+    }
+  ]
 }

@@ -117,6 +117,13 @@ export default function ToolsTab({
 }) {
   const [tools, setTools] = useState<Tool[]>([]);
   const [mcpServers, setMcpServers] = useState<{ name: string; host: string; secretEnv: string }[]>([]);
+  const [fbStatus, setFbStatus] = useState<{
+    connected: boolean;
+    pageName?: string;
+    pageId?: string;
+    igUsername?: string | null;
+  } | null>(null);
+  const [fbMsg, setFbMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [running, setRunning] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -157,6 +164,11 @@ export default function ToolsTab({
       .then((r) => r.json())
       .then((data) => setMcpServers(Array.isArray(data.servers) ? data.servers : []))
       .catch(() => {});
+    // Facebook/Instagram connected state (non-secret record).
+    fetch("/api/facebook")
+      .then((r) => r.json())
+      .then((d) => setFbStatus(d))
+      .catch(() => {});
   }, [sandboxName]);
 
   useEffect(() => {
@@ -181,6 +193,53 @@ export default function ToolsTab({
       setRemoving(null);
     }
   }
+
+  // ── Facebook / Instagram ───────────────────────────────────────────────
+  function connectFacebook() {
+    // Full-page navigation into the OAuth dance; Facebook redirects back here.
+    window.location.href = `/api/facebook/login?sandbox=${encodeURIComponent(sandboxName)}`;
+  }
+
+  async function disconnectFacebook() {
+    if (!confirm("Disconnect Facebook & Instagram? The host-side token is deleted; the agent loses access on the next redeploy.")) return;
+    setRemoving("facebook");
+    setError("");
+    try {
+      const r = await fetch(`/api/facebook?sandbox=${encodeURIComponent(sandboxName)}`, { method: "DELETE" });
+      const d = await r.json();
+      if (!r.ok || !d.ok) throw new Error(d.error || "Disconnect failed");
+      load();
+    } catch (e) {
+      setError((e as Error).message || "Disconnect failed");
+    } finally {
+      setRemoving(null);
+    }
+  }
+
+  // Surface the OAuth round-trip result (?connected=facebook / ?facebook_error=)
+  // once on mount, then strip the query so a refresh doesn't replay the banner.
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search);
+    const connected = p.get("connected");
+    const err = p.get("facebook_error");
+    if (connected === "facebook") {
+      setFbMsg({ ok: true, text: `Connected ${p.get("page") || "Facebook"} — redeploy to use it in chat.` });
+    } else if (err) {
+      const map: Record<string, string> = {
+        denied: "Authorization was cancelled.",
+        state: "Session expired or the security check failed — try again.",
+        no_pages: "No Facebook Page found on that account.",
+        connect: "Logged in, but wiring the token host-side failed.",
+        not_configured: "Facebook app credentials are not set on the server.",
+        exchange: "Could not exchange the login for a token.",
+        sandbox: "Invalid sandbox.",
+      };
+      setFbMsg({ ok: false, text: map[err] || `Facebook error: ${err}` });
+    }
+    if (connected || err) {
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+  }, []);
 
   // Poll the live-install job until it finishes, then refresh the list.
   useEffect(() => {
@@ -473,6 +532,58 @@ export default function ToolsTab({
           {error}
         </div>
       )}
+
+      {/* Facebook / Instagram — log in once; the agent reads & answers comments and DMs. */}
+      <div className="rounded border border-nc-border bg-nc-bg p-3 space-y-2">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-nc-text text-sm font-medium">Facebook &amp; Instagram</div>
+            <div className="text-nc-text-muted text-xs">
+              Read &amp; reply to Page/Instagram comments and DMs. Log in with Facebook — the access
+              token is held host-side; the agent only ever sees a placeholder.
+            </div>
+          </div>
+          {fbStatus?.connected ? (
+            <button
+              disabled={removing === "facebook"}
+              onClick={disconnectFacebook}
+              className="shrink-0 rounded bg-nc-danger/10 px-3 py-1.5 text-xs text-nc-danger hover:bg-nc-danger/20 disabled:opacity-40"
+            >
+              {removing === "facebook" ? "Removing…" : "Disconnect"}
+            </button>
+          ) : (
+            <button
+              disabled={!running}
+              onClick={connectFacebook}
+              className="shrink-0 rounded bg-[#1877F2] px-3 py-1.5 text-xs font-medium text-white hover:opacity-90 disabled:opacity-40"
+            >
+              Connect Facebook
+            </button>
+          )}
+        </div>
+        {fbMsg && (
+          <div
+            className={
+              "rounded px-2 py-1 text-xs " +
+              (fbMsg.ok ? "bg-nc-green/10 text-nc-green" : "bg-nc-danger/10 text-nc-danger")
+            }
+          >
+            {fbMsg.text}
+          </div>
+        )}
+        {fbStatus?.connected && (
+          <>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <Badge ok={true} label={`Page: ${fbStatus.pageName || fbStatus.pageId}`} />
+              {fbStatus.igUsername && <Badge ok={true} label={`IG: @${fbStatus.igUsername}`} />}
+              <Badge ok={true} label="Token host-side" />
+            </div>
+            <div className="text-nc-text-muted text-[11px]">
+              Available to the chat agent after the next redeploy.
+            </div>
+          </>
+        )}
+      </div>
 
       {/* Add / Connect panel */}
       {showAdd && (
