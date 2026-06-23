@@ -504,6 +504,13 @@ After=network.target
 
 [Service]
 Type=simple
+# CRITICAL: only kill the web-server process on stop/restart — NOT the whole
+# cgroup. A dashboard Deploy spawns `nemoclaw onboard`, which starts the OpenShell
+# gateway; that gateway inherits this service's cgroup. With the default
+# KillMode=control-group, `systemctl restart diffractui` (e.g. a UI update) would
+# SIGKILL the gateway and take the running agent/sandbox down with it. KillMode=process
+# leaves those descendants alive so UI restarts never knock out the agent.
+KillMode=process
 User=root
 WorkingDirectory=$UI_DIR
 Environment=PATH=$PATH
