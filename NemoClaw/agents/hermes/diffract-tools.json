@@ -35,11 +35,17 @@
           "fb IG_MEDIA_ID/comments id,text,username",
           "fb igreply IG_COMMENT_ID Appreciate your comment!",
           "",
-          "# Comments on LIVE ADS (ad comments live on the ad's underlying post):",
-          "fb me/adaccounts id,name",
-          "fb AD_ACCOUNT_ID/ads name,effective_status,creative{effective_object_story_id} limit=25",
-          "fb OBJECT_STORY_ID/comments id,message,from",
-          "# then reply with:  fb reply COMMENT_ID your message here"
+          "# Comments on LIVE ADS — they live on the ad's underlying POST (a Page token has NO ad",
+          "# accounts; do NOT try me/adaccounts). Two cases:",
+          "# 1) Ads that BOOST an existing post: the comments are on that normal post, already in",
+          "#    'fb me/feed' above — just read that POST_ID/comments and reply. Nothing extra needed.",
+          "fb me/feed id,message,created_time limit=15",
+          "fb POST_ID/comments id,message,from",
+          "# 2) Ad-only 'dark' posts (never on the page timeline): list them with promotable_posts",
+          "#    (needs the ads_management permission), then read each post's comments:",
+          "fb me/promotable_posts id,message,created_time limit=25",
+          "fb POST_ID/comments id,message,from",
+          "# then reply to any of them with:  fb reply COMMENT_ID your message here"
         ]
       }
     }
