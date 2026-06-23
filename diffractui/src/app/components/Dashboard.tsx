@@ -25,6 +25,11 @@ export default function Dashboard({ sandboxName, onDestroyed }: Props) {
   const [redeploying, setRedeploying] = useState(false);
   const [redeployDone, setRedeployDone] = useState(false);
   const [redeployFailed, setRedeployFailed] = useState(false);
+  // Global deploy lock: ANY in-progress deploy on the server (dashboard- or
+  // CLI-initiated, and surviving a page reload) locks the whole dashboard until
+  // it finishes or fails. Driven by polling /api/deploy/status (a host process check).
+  const [deployLive, setDeployLive] = useState(false);
+  const deployWasLive = useRef(false);
   const logRef = useRef<HTMLDivElement>(null);
 
   function checkForward() {
@@ -113,6 +118,42 @@ export default function Dashboard({ sandboxName, onDestroyed }: Props) {
       .catch(() => {});
 
     return () => clearInterval(interval);
+  }, [sandboxName]);
+
+  // Poll for an in-progress deploy and lock the dashboard while one runs. Self-healing
+  // (process-based) and reload-proof: if the page is refreshed mid-deploy, the lock
+  // re-appears; when the deploy finishes/fails, it clears and we refresh status.
+  useEffect(() => {
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const r = await fetch("/api/deploy/status");
+        if (!r.ok) return;
+        const d = await r.json();
+        if (cancelled) return;
+        const live = !!d.live;
+        setDeployLive(live);
+        if (deployWasLive.current && !live) {
+          // A deploy just finished — refresh status so the dashboard reflects it.
+          fetch(`/api/status?sandbox=${sandboxName}`)
+            .then((r) => r.json())
+            .then((data) => {
+              setStatus(data.status || {});
+              setPolicies(data.policies || []);
+            })
+            .catch(() => {});
+        }
+        deployWasLive.current = live;
+      } catch {
+        /* ignore transient poll errors */
+      }
+    };
+    poll();
+    const id = setInterval(poll, 3000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
   }, [sandboxName]);
 
   function copyToClipboard(text: string, label: string) {
@@ -600,6 +641,26 @@ export default function Dashboard({ sandboxName, onDestroyed }: Props) {
                 {redeployFailed ? "Close" : redeployDone ? "Done" : "Please wait…"}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Global deploy lock — shown for ANY in-progress deploy on the server (incl.
+          ones started elsewhere or before a reload). No dismiss: the dashboard is
+          locked until the deploy finishes or fails. The local redeploy overlay above
+          supersedes it for a redeploy started from this session. */}
+      {deployLive && !redeploying && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 p-4">
+          <div className="w-full max-w-sm space-y-3 rounded-lg border border-nc-border bg-nc-surface p-5 text-center">
+            <div className="flex items-center justify-center gap-2">
+              <span className="h-3 w-3 animate-spin rounded-full border-2 border-nc-green border-t-transparent" />
+              <h3 className="text-sm font-semibold text-nc-text">Deployment in progress</h3>
+            </div>
+            <p className="text-xs text-nc-text-muted">
+              A deploy is running on this server. The dashboard is locked until it finishes or
+              fails — this usually takes a couple of minutes. Keep this tab open; it unlocks
+              automatically.
+            </p>
           </div>
         </div>
       )}
