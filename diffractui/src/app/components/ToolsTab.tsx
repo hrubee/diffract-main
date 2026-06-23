@@ -116,6 +116,7 @@ export default function ToolsTab({
   onRedeploy?: () => void;
 }) {
   const [tools, setTools] = useState<Tool[]>([]);
+  const [mcpServers, setMcpServers] = useState<{ name: string; host: string; secretEnv: string }[]>([]);
   const [running, setRunning] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -151,11 +152,35 @@ export default function ToolsTab({
       })
       .catch((e) => setError(e.message || "Failed to load tools"))
       .finally(() => setLoading(false));
+    // Connected MCP servers (host-side records — independent of the tool registry).
+    fetch("/api/mcp")
+      .then((r) => r.json())
+      .then((data) => setMcpServers(Array.isArray(data.servers) ? data.servers : []))
+      .catch(() => {});
   }, [sandboxName]);
 
   useEffect(() => {
     load();
   }, [load]);
+
+  async function disconnectMcp(name: string) {
+    if (!confirm(`Disconnect MCP server "${name}"? Its host-side secret is deleted; it's removed from the agent on the next redeploy.`)) return;
+    setRemoving(name);
+    setError("");
+    try {
+      const r = await fetch(
+        `/api/mcp?name=${encodeURIComponent(name)}&sandbox=${encodeURIComponent(sandboxName)}`,
+        { method: "DELETE" },
+      );
+      const d = await r.json();
+      if (!r.ok || !d.ok) throw new Error(d.error || "Disconnect failed");
+      load();
+    } catch (e) {
+      setError((e as Error).message || "Disconnect failed");
+    } finally {
+      setRemoving(null);
+    }
+  }
 
   // Poll the live-install job until it finishes, then refresh the list.
   useEffect(() => {
@@ -674,10 +699,42 @@ export default function ToolsTab({
         </div>
       )}
 
+      {mcpServers.length > 0 && (
+        <div className="mb-3 space-y-2">
+          <div className="text-nc-text-dim text-xs font-medium">Connected MCP servers</div>
+          {mcpServers.map((s) => (
+            <div
+              key={s.name}
+              className="flex items-center justify-between gap-3 rounded border border-nc-border bg-nc-bg p-3"
+            >
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-nc-text text-sm font-medium font-mono">{s.name}</span>
+                  <span className="text-nc-text-muted text-xs truncate">→ {s.host.split(":")[0]}</span>
+                </div>
+                <div className="mt-1.5 flex flex-wrap gap-1.5">
+                  <Badge ok={true} label="Connected" />
+                  <Badge ok={true} label="Secret host-side" />
+                </div>
+              </div>
+              <button
+                disabled={removing === s.name}
+                onClick={() => disconnectMcp(s.name)}
+                className="shrink-0 rounded bg-nc-danger/10 px-3 py-1.5 text-xs text-nc-danger hover:bg-nc-danger/20 disabled:opacity-40"
+              >
+                {removing === s.name ? "Removing…" : "Disconnect"}
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
       {loading && tools.length === 0 ? (
         <div className="text-nc-text-muted text-xs">Loading…</div>
       ) : tools.length === 0 ? (
-        <div className="text-nc-text-muted text-xs">No tools yet — add one above.</div>
+        mcpServers.length === 0 ? (
+          <div className="text-nc-text-muted text-xs">No tools or MCP servers yet — add one above.</div>
+        ) : null
       ) : (
         <div className="space-y-3">
           {tools.map((t) => (
