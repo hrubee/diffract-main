@@ -160,10 +160,6 @@ RUN printf '%s\n' \
 RUN pip3 install --no-cache-dir --break-system-packages "uv==${UV_VERSION}"
 RUN mkdir -p /opt/hermes
 COPY agents/hermes/hermes/ /opt/hermes/
-# Diffract MCP stdio bridge: run via this subprocess so MCP egress is attributed correctly
-# by the OpenShell proxy (the daemon's own in-process egress is mis-attributed binary=- and
-# 403'd). diffract-mcp-sync.sh generates command-based mcp_servers config pointing here.
-COPY agents/hermes/diffract-mcp-bridge.py /opt/hermes/diffract-mcp-bridge.py
 WORKDIR /opt/hermes
 # hadolint ignore=SC2086
 RUN set -eu; \

@@ -207,17 +207,15 @@ function isHermesPolicyPath(policyPath: string): boolean {
 
 /**
  * Allow the connected MCP server hosts in the CREATE-TIME policy, so MCP egress is
- * active BEFORE the chat daemon's startup MCP discovery. Without this the daemon
- * discovers MCP at startup — before the deploy flow applies per-server egress — and
- * registers 0 tools; and the api_server (chat) agent only picks up MCP tools at
- * startup, so a later reload can't help it.
+ * active for the chat daemon's startup MCP discovery. The daemon connects to the MCP
+ * server in-process (url-based config) using its own HTTPS_PROXY + CA env; the proxy
+ * attributes that cross-netns egress to `binary=-`, so the rule must admit `-` (handled
+ * in the binaries list below) for the connected host(s) or discovery 403s and the chat
+ * agent registers 0 tools.
  *
  * Hosts are derived from NEMOCLAW_MCP_SERVERS_B64 (the create-time mcp_servers config
- * the deploy route already passes): each enabled server's URL (`url`, or the last
- * `args` entry for command/bridge servers). Scoped to the python binaries that run the
- * stdio bridge (diffract-mcp-bridge.py) — the daemon's OWN in-process egress is
- * mis-attributed (binary=-) and 403'd, but the bridge SUBPROCESS is attributed
- * correctly. See docs/bugs/openshell-egress-attribution-mcp-403.md.
+ * the deploy route already passes): each enabled server's URL (`url`, or the last `args`
+ * entry as a fallback). See docs/bugs/openshell-egress-attribution-mcp-403.md.
  */
 function buildMcpEgressInjector(): ((content: string) => string) | null {
   const b64 = process.env.NEMOCLAW_MCP_SERVERS_B64;
@@ -270,11 +268,21 @@ function buildMcpEgressInjector(): ((content: string) => string) | null {
         enforcement: "enforce",
         access: "full",
       })),
+      // The chat daemon (`hermes gateway run`) runs in the sandbox network namespace
+      // and reaches external hosts only through the L7 forward proxy across the veth.
+      // The proxy cannot trace that cross-netns CONNECT back to a process, so it
+      // attributes the daemon's MCP egress to `binary=-` (unknown). Without `-` in this
+      // allowlist the proxy 403s it and the chat agent registers 0 MCP tools — proven
+      // on-box: the same request from inside the daemon's netns via the proxy returns
+      // 0 tools without `-` and all tools with it. The specific python paths cover any
+      // correctly-attributed (e.g. exec-session) callers; `-` covers the daemon itself.
+      // Scoped to the connected MCP host(s) only, so it does not weaken egress elsewhere.
       binaries: [
         { path: "/usr/bin/python3.13" },
         { path: "/opt/hermes/.venv/bin/python3.13" },
         { path: "/opt/hermes/.venv/bin/python3" },
         { path: "/opt/hermes/.venv/bin/python" },
+        { path: "-" },
       ],
     };
     parsed.network_policies = net;

@@ -21,14 +21,12 @@ OPENSHELL="${OPENSHELL_PATH:-openshell}"
 DOCKER="${DOCKER_PATH:-docker}"
 MODE="${1:-providers}"
 SANDBOX="${2:-${DIFFRACT_SANDBOX:-hermes}}"
-MCP_BINARIES=(/usr/bin/python3.13 /opt/hermes/.venv/bin/python3.13 /opt/hermes/.venv/bin/python3 /opt/hermes/.venv/bin/python /usr/bin/curl)
-# URL-token MCP servers are run via a stdio bridge SUBPROCESS: the daemon's own in-process
-# egress is mis-attributed (binary=-) and 403'd by the proxy, but a subprocess is attributed
-# to its real binary and allowed. The bridge is baked into the agent image (Dockerfile.base
-# copies agents/hermes/diffract-mcp-bridge.py to this path). See
-# docs/bugs/openshell-egress-attribution-mcp-403.md.
-MCP_BRIDGE="${DIFFRACT_MCP_BRIDGE:-/opt/hermes/diffract-mcp-bridge.py}"
-MCP_PYTHON="${DIFFRACT_MCP_PYTHON:-/opt/hermes/.venv/bin/python}"
+# The chat daemon connects to MCP servers IN-PROCESS (url-based config) using its own
+# HTTPS_PROXY + CA env. The L7 proxy attributes that cross-netns egress to `binary=-`
+# (it can't trace the daemon's process across the veth), so the egress allowlist must
+# include `-` alongside the python interpreters (which cover correctly-attributed
+# exec-session callers). See docs/bugs/openshell-egress-attribution-mcp-403.md.
+MCP_BINARIES=(/usr/bin/python3.13 /opt/hermes/.venv/bin/python3.13 /opt/hermes/.venv/bin/python3 /opt/hermes/.venv/bin/python /usr/bin/curl -)
 
 records() { ls "$RECORD_DIR"/*.conf 2>/dev/null; }
 
@@ -70,8 +68,7 @@ case "$MODE" in
       fi
       # Write mcp_servers (REAL token) into the agent config AS THE SANDBOX USER.
       if "$DOCKER" exec -i -u sandbox -e HOME=/sandbox \
-          -e MNAME="$NAME" -e MURL="$URL" -e MHEADER="$HEADER" -e MSECRET="$SECRET" \
-          -e MPY="$MCP_PYTHON" -e MBRIDGE="$MCP_BRIDGE" "$cid" \
+          -e MNAME="$NAME" -e MURL="$URL" -e MHEADER="$HEADER" -e MSECRET="$SECRET" "$cid" \
           /opt/hermes/.venv/bin/python - <<'PY' </dev/null >/dev/null 2>&1
 import os
 from ruamel.yaml import YAML
@@ -84,16 +81,15 @@ try:
 except Exception:
     cfg = {}
 if os.environ.get("MHEADER"):
-    # Header-auth servers stay direct (header substitution); rare, and can move to the
-    # bridge later if needed.
+    # Header-auth servers: in-process url-based with a substituted header.
     entry = {"url": os.environ["MURL"], "enabled": True,
              "headers": {os.environ["MHEADER"]: os.environ["MSECRET"]}}
 else:
-    # URL-token servers run via the stdio bridge subprocess (correct egress attribution).
-    # Long timeouts let startup discovery outlast OpenShell's create-policy enforcement delay.
-    entry = {"command": os.environ["MPY"],
-             "args": [os.environ["MBRIDGE"], os.environ["MURL"]],
-             "connect_timeout": 200, "timeout": 200,
+    # URL-token servers: in-process url-based. The daemon connects via its own
+    # HTTPS_PROXY + CA env; the diffract_mcp egress rule admits the daemon's binary=-
+    # attribution. connect_timeout/timeout give startup discovery room to settle.
+    entry = {"url": os.environ["MURL"],
+             "connect_timeout": 120, "timeout": 120,
              "enabled": True}
 cfg.setdefault("mcp_servers", {})[os.environ["MNAME"]] = entry
 with open(p, "w") as f:
@@ -130,12 +126,12 @@ PY
           "$(jq -nc --arg v "$NAME" '$v')" "$(jq -nc --arg v "$URL" '$v')" \
           "$(jq -nc --arg v "$HEADER" '$v')" "$(jq -nc --arg v "$SECRET" '$v')"
       else
-        # URL-token: command-based (stdio bridge subprocess) so create-time discovery in the
-        # daemon reaches the server with correct egress attribution. connect_timeout/timeout
-        # 200s let startup discovery outlast OpenShell's ~120s create-policy enforcement delay.
-        printf '%s:{"command":%s,"args":[%s,%s],"connect_timeout":200,"timeout":200,"enabled":true}' \
-          "$(jq -nc --arg v "$NAME" '$v')" "$(jq -nc --arg v "$MCP_PYTHON" '$v')" \
-          "$(jq -nc --arg v "$MCP_BRIDGE" '$v')" "$(jq -nc --arg v "$URL" '$v')"
+        # URL-token: in-process url-based. The daemon connects via its own HTTPS_PROXY + CA
+        # env at startup discovery; the create-time diffract_mcp rule admits the daemon's
+        # binary=- attribution (see initial-policy.ts). connect_timeout/timeout give
+        # discovery room to settle on a fresh sandbox.
+        printf '%s:{"url":%s,"connect_timeout":120,"timeout":120,"enabled":true}' \
+          "$(jq -nc --arg v "$NAME" '$v')" "$(jq -nc --arg v "$URL" '$v')"
       fi
     done
     printf '}\n'

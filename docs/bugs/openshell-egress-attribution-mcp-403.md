@@ -1,108 +1,86 @@
-# OpenShell egress bug: daemon in-process egress attributed `binary=-` → 403 (breaks MCP in chat)
+# OpenShell egress: the chat daemon's cross-netns egress is attributed `binary=-` → 403 (breaks MCP in chat)
 
-**Severity:** High — makes HTTP MCP servers unusable from the chat agent, and undermines
-the egress-approval UX (approving a host does not let the agent reach it).
+**Severity:** High — makes HTTP MCP servers unusable from the chat agent unless the
+connected host's egress rule explicitly admits the unknown-binary (`-`) attribution.
 
-**Component:** OpenShell L7 egress proxy / gateway (process→binary attribution).
+**Component:** OpenShell L7 forward proxy — process→binary attribution across the
+sandbox/main network-namespace boundary.
 **Version:** OpenShell `0.0.57`.
 **Environment:** `ghcr.io/nvidia/nemoclaw/hermes-sandbox-base` (Debian 13, Python 3.13),
-Hermes agent `hermes gateway run`, sandbox id `1bbe4e74-...` on the live Diffract VPS.
+Hermes agent `hermes gateway run`, on the live Diffract VPS.
 
 ---
 
 ## Summary
 
-A **fresh process** inside the sandbox can reach an allowlisted external host through the
-proxy, but the **long-running Hermes daemon** (`hermes gateway run`) cannot reach the *same*
-host with the *same* binary, user, and request — it gets **`403 Forbidden`** every time.
+The Hermes chat daemon (`hermes gateway run`) runs in the **sandbox network namespace**
+(`10.200.0.2`, behind a veth). Its only path to any external host is the OpenShell L7
+forward proxy at `10.200.0.1:3128` in the **main namespace** (the daemon's env exports
+`HTTPS_PROXY=http://10.200.0.1:3128` + CA bundles; there is no transparent NAT redirect in
+the sandbox netns, and the daemon can reach *only* the proxy port and the privileged
+`inference.local` RPC — nothing else).
 
-The proxy attributes the daemon's outbound connection to **`binary=-` (unknown)**, treats it
-as un-approved egress, and denies it. Approving the resulting draft chunk — even as a broad
-**any-binary** rule (`binaries=[-]`) — does **not** unblock the daemon: it keeps 403-ing and
-re-generating mechanistic chunks that are auto-rejected as "already covered".
+When the daemon CONNECTs to `mcp.zapier.com:443` through that proxy, the proxy **cannot
+trace the cross-netns connection back to a process/binary**, so it attributes it to
+`binary=-` (unknown). The connected host's egress rule listed only concrete binaries
+(the python interpreters), so `binary=-` matched nothing → **403** → the chat agent
+registered **0 MCP tools**.
 
-## Why it matters
+A process OpenShell *can* trace — anything in the **main** netns, e.g. a `docker exec`
+child or `hermes mcp test` — is attributed to its real exe and allowed. That is why every
+"fresh process" reproduction succeeded while the daemon failed.
 
-- HTTP MCP servers (e.g. Zapier MCP at `https://mcp.zapier.com/...`) connect from **inside**
-  the daemon process. Because the daemon's egress is attributed `binary=-`, the MCP client
-  gets 403 at startup → `registered 0 tool(s)` → the agent has no MCP tools in chat.
-- It defeats the core egress-approval value prop: the dashboard "Rules" approval flow adds an
-  allow rule, the user clicks Approve, and the agent **still can't reach the host**.
-
-## Minimal repro (same sandbox, same user, same binary, same SDK, same URL, same moment)
+## Proof (one instant, same host/user/binary/SDK/URL — only the caller's netns differs)
 
 ```sh
-CID=<sandbox container>
-# 1) Fresh process AS THE DAEMON'S USER (`sandbox`) — the exact MCP client path:
-docker exec -u sandbox -e HOME=/sandbox "$CID" /opt/hermes/.venv/bin/python - <<'PY'
-import asyncio
-from mcp.client.streamable_http import streamablehttp_client
-from mcp import ClientSession
-URL = "https://mcp.zapier.com/api/v1/connect?token=<valid>"
-async def main():
-    async with streamablehttp_client(URL) as (r, w, _):
-        async with ClientSession(r, w) as s:
-            await s.initialize()
-            t = await s.list_tools()
-            print("OK", [x.name for x in t.tools][:5])
-asyncio.run(main())
-PY
-# => 200, lists ~12 tools (google_docs_*, linkedin_*). WORKS.
+CID=<sandbox container>;  GW=$(pgrep -f "hermes gateway run")
+URL="https://mcp.zapier.com/api/v1/connect?token=<valid>"
 
-# 2) The daemon (`hermes gateway run`, PID, user `sandbox`, /proc/<pid>/exe -> /usr/bin/python3.13)
-#    doing the identical discover_mcp_tools() via the reload.mcp RPC:
-#    => tools/mcp_tool: Failed to connect to MCP server 'zzaiier': 403 Forbidden
-#       MCP: registered 0 tool(s) from 0 server(s) (1 failed)   -- EVERY TIME.
+# (A) From INSIDE the daemon's netns, via the proxy, with the host's rule listing only
+#     concrete binaries:                                   -> ProxyError: 403 Forbidden
+docker exec -i "$CID" nsenter -t "$GW" -n env HTTPS_PROXY=http://10.200.0.1:3128 \
+  SSL_CERT_FILE=/etc/openshell-tls/ca-bundle.pem ... python -c '<list_tools(URL)>'
+
+# (B) Add `-` (unknown binary) to that host's egress rule, then rerun (A): -> 21 tools OK
+openshell policy update <sb> --add-endpoint mcp.zapier.com:443:full --binary -
+
+# (C) A docker-exec / main-netns process (correctly attributed) was allowed all along: 21 tools
 ```
 
-Both processes run as user `sandbox`, both resolve to `/usr/bin/python3.13` (which is in the
-egress allowlist), both target `mcp.zapier.com:443`. Only the fresh process succeeds.
+The single variable that flips (A) from 403 to 21 tools is whether the rule admits `-`.
 
-## Proxy-log evidence (`openshell-gateway.log`)
+## What was NOT the cause (ruled out along the way)
 
-```
-ApproveDraftChunk: ... rule_name=allow_mcp_zapier_com_443 host=mcp.zapier.com port=443
-  hit_count=4 prev_status=pending
-CONFIG:APPROVED ... add-rule allow_mcp_zapier_com_443 endpoints=[mcp.zapier.com:443]
-  binaries=[-]  [version:v8]
-# ...daemon retried after the approval (v8 active)...
-SubmitPolicyAnalysis: Auto-rejected incoming mechanistic chunk: endpoint already covered
-  by an approved chunk host=mcp.zapier.com port=443 binary=-
-```
+- **Token / SDK / CA / proxy env** — all fine; fresh-process repros list 21 tools, including
+  with the daemon's *exact* minimal env.
+- **Process age** (long-running daemon vs fresh process) — not it; the discriminator is the
+  network namespace, not the process lifetime.
+- **A stdio bridge subprocess** — does NOT help: any subprocess the daemon spawns lives in
+  the same sandbox netns and is attributed `binary=-` just like the daemon. (Earlier theory;
+  the bridge was removed.)
+- **A loopback sidecar** — does NOT help: a correctly-attributed sidecar (started via
+  `docker exec`) lands in the *main* netns, and the daemon cannot reach it — the gateway can
+  reach only `10.200.0.1:3128`, not arbitrary ports. (Earlier theory; removed.)
+- **Create-policy enforcement delay** — not real; the create policy is active at startup. The
+  "delay" symptom was the persistent 403, not timing.
 
-Key facts: the daemon's egress carries **`binary=-`**, and even after an **any-binary**
-(`binaries=[-]`) allow rule is approved and active (policy v8), the daemon's connection is
-still denied and produces another `binary=-` mechanistic chunk.
+## Suggested upstream fix
 
-## Root cause (hypothesis)
+Make the forward proxy resolve the originating binary for cross-netns CONNECTs (peer-cred /
+conntrack → owning PID in the sandbox netns → `/proc/<pid>/exe`) and apply the same
+per-binary allowlist, OR document that `binary=-` is the correct attribution for the
+sandbox daemon and have operators scope an allow rule to it per host.
 
-The proxy resolves the connecting process's binary correctly for processes whose `exec` it
-traces (fresh `docker exec` children → `/usr/bin/python3.13`), but attributes the
-**long-running daemon** (launched at sandbox boot via `nemoclaw-start` → step-down → `hermes
-gateway run`) as `binary=-` (unknown). Two sub-issues compound:
+## Diffract fix (shipped)
 
-1. **Attribution miss for the daemon process** — its in-process egress is not mapped to its
-   real exe (`/usr/bin/python3.13`), so it matches no binary-scoped allow rule.
-2. **`binaries=[-]` allow rules don't admit `binary=-` egress** — an approved any-binary rule
-   for the host still denies the unknown-binary connection, so the operator-facing "Approve"
-   action has no effect for the daemon.
+The connected MCP server is configured **url-based** (`mcp_servers.<name>.url`), so the
+daemon connects to it **in-process** using its own `HTTPS_PROXY` + CA env, and the
+create-time `diffract_mcp` egress rule lists `-` alongside the python interpreters — scoped
+to the connected MCP host(s) only. The daemon's startup discovery is then admitted and
+registers the tools; the api_server (chat) agent, which rebuilds per request from the global
+tool registry, picks them up. No bridge, sidecar, or gateway restart required.
+- `NemoClaw/src/lib/onboard/initial-policy.ts` — `diffract_mcp` binaries include `{ path: "-" }`.
+- `scripts/diffract-mcp-sync.sh` — emits url-based `mcp_servers` config + `-` in the egress binaries.
 
-## What is NOT the cause (ruled out)
-
-- **Token** — valid (the fresh-process repro lists all tools; also 200 directly from the host).
-- **MCP SDK** — `mcp==1.26.0` with `mcp.client.streamable_http` is installed and imports fine.
-- **Egress reachability / proxy MITM** — the fresh process connects through the same proxy.
-- **Server config** — `mcp_servers.zzaiier` is present and `enabled: true` in the daemon's
-  `/sandbox/.hermes/config.yaml`.
-- **Reload mechanism** — the `reload.mcp` JSON-RPC (`{confirm:true}`) re-runs
-  `discover_mcp_tools()` in-process and re-attempts the connection; it still hits the 403.
-
-## Suggested fix direction
-
-- Attribute the daemon's in-process egress to its real exe (e.g. resolve via the connecting
-  task's owning PID `/proc/<pid>/exe` in the sandbox mount ns), OR
-- Treat an approved `binaries=[-]` (any-binary) allow rule as admitting `binary=-`
-  (unknown-attribution) egress for that host — so operator approval actually works.
-
-Either makes HTTP MCP servers usable from chat without weakening per-binary egress for
-processes that *can* be attributed.
+Verified end-to-end on-box: the chat agent lists all 21 Zapier tools and successfully created
+a real Google Doc through the tool call.
