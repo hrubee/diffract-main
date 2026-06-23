@@ -50,7 +50,19 @@
           "# Reply to an IG comment:",
           "curl -sS -X POST -H \"Authorization: Bearer $FACEBOOK_PAGE_TOKEN\" \"https://graph.facebook.com/v21.0/<IG_COMMENT_ID>/replies\" --data-urlencode \"message=Thanks so much!\"",
           "# Send an Instagram direct message (recipient id from a conversation/webhook):",
-          "curl -sS -X POST -H \"Authorization: Bearer $FACEBOOK_PAGE_TOKEN\" \"https://graph.facebook.com/v21.0/<IG_USER_ID>/messages\" --data-urlencode 'recipient={\"id\":\"<IGSID>\"}' --data-urlencode 'message={\"text\":\"Hi from Instagram!\"}'"
+          "curl -sS -X POST -H \"Authorization: Bearer $FACEBOOK_PAGE_TOKEN\" \"https://graph.facebook.com/v21.0/<IG_USER_ID>/messages\" --data-urlencode 'recipient={\"id\":\"<IGSID>\"}' --data-urlencode 'message={\"text\":\"Hi from Instagram!\"}'",
+          "",
+          "# --- LIVE ADS — comments on running ad posts (incl. dark posts not on the page timeline) ---",
+          "# Comments on an ad live on the ad's underlying post (effective_object_story_id); you then",
+          "# reply to them exactly like any comment. Requires the ads_read permission to discover ads.",
+          "# 1. Find your ad account(s) (the id already includes the act_ prefix):",
+          "curl -sS -H \"Authorization: Bearer $FACEBOOK_PAGE_TOKEN\" \"https://graph.facebook.com/v21.0/me/adaccounts?fields=id,name,account_status\"",
+          "# 2. List ACTIVE ads and the post each one runs (effective_object_story_id):",
+          "curl -sS -H \"Authorization: Bearer $FACEBOOK_PAGE_TOKEN\" \"https://graph.facebook.com/v21.0/<AD_ACCOUNT_ID>/ads?fields=id,name,effective_status,creative{effective_object_story_id}&effective_status=%5B%22ACTIVE%22%5D&limit=25\"",
+          "# 3. Read comments on an ad's post (use the effective_object_story_id from step 2):",
+          "curl -sS -H \"Authorization: Bearer $FACEBOOK_PAGE_TOKEN\" \"https://graph.facebook.com/v21.0/<OBJECT_STORY_ID>/comments?fields=id,message,from,created_time\"",
+          "# 4. Reply to an ad comment (identical to any comment reply — uses your Page permission):",
+          "curl -sS -X POST -H \"Authorization: Bearer $FACEBOOK_PAGE_TOKEN\" \"https://graph.facebook.com/v21.0/<COMMENT_ID>/comments\" --data-urlencode \"message=Thanks for your interest! Sending you a DM.\""
         ]
       }
     }
