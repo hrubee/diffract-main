@@ -97,6 +97,23 @@ COPY agents/hermes/install-diffract-tools.sh /usr/local/bin/install-diffract-too
 RUN chmod +x /usr/local/bin/install-diffract-tools.sh \
     && /usr/local/bin/install-diffract-tools.sh /opt/nemoclaw-diffract/diffract-tools.json
 
+# Diffract tool HELPER scripts (e.g. `fb` for the Facebook connector). A weak
+# tool-calling model cannot reliably hand-write curl + an auth header + the
+# injected token (it mangles quoting, tries to print the token, loops). A helper
+# lets the agent call a plain command (`fb me id,name`) with NO token/curl/URL.
+# Same placement rule as the installer above: helpers must live under /sandbox
+# (the only tree the confined agent can READ) with a symlink onto the PATH; the
+# file-persistence backup excludes /sandbox/.diffract-tools, so they survive
+# recreate. Runs as root here (USER sandbox comes later), so symlink+chown work.
+COPY agents/hermes/diffract-tool-helpers/ /sandbox/.diffract-tools/_helpers/
+RUN set -eu; \
+    for h in /sandbox/.diffract-tools/_helpers/*; do \
+        [ -f "$h" ] || continue; \
+        chmod 0755 "$h"; \
+        ln -sf "$h" "/usr/local/bin/$(basename "$h")"; \
+    done; \
+    chown -R sandbox:sandbox /sandbox/.diffract-tools/_helpers
+
 # Copy NemoClaw plugin for Hermes (Python-based)
 COPY agents/hermes/plugin/ /opt/nemoclaw-hermes-plugin/
 RUN chmod -R a+rX /opt/nemoclaw-hermes-plugin/
