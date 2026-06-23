@@ -3,17 +3,21 @@
 # Diffract MCP sync — makes every connected MCP server usable by the CHAT agent,
 # driven entirely by the host-side connection records (no per-server code).
 #
-# MODEL (token-in-Hermes, by operator choice): the real secret is written
-# directly into the agent config (mcp_servers). We do NOT register OpenShell
-# providers; we keep ONLY the egress allowlist so the agent can reach the host.
+# SECURE MODEL (host-side secret): the real token lives ONLY in an OpenShell
+# provider. The records + the sandbox config carry ONLY a ${SECRET_ENV}
+# placeholder; OpenShell injects an opaque token at create and the L7 proxy
+# resolves it to the real secret at egress (TLS-terminated `rest` endpoints, in
+# headers AND query params). The agent never sees the real secret. See
+# diffract-mcp-connect.sh and docs/bugs/openshell-egress-attribution-mcp-403.md.
 #
-# The agent config lives in the ephemeral sandbox (wiped on recreate), so it is
-# re-applied at each deploy from the records written by diffract-mcp-connect.sh:
+# The sandbox config is ephemeral (wiped on recreate), so it is re-applied at each
+# deploy from the records written by diffract-mcp-connect.sh:
 #
-#   diffract-mcp-sync.sh providers          # -> EMPTY (no OpenShell providers in this model)
-#   diffract-mcp-sync.sh config             # -> mcp_servers JSON (real tokens) for NEMOCLAW_MCP_SERVERS_B64 at create
-#   diffract-mcp-sync.sh apply [<sandbox>]  # re-apply egress + mcp_servers config + reload (post-create)
+#   diffract-mcp-sync.sh providers          # -> comma-joined provider names for NEMOCLAW_SANDBOX_EXTRA_PROVIDERS (attach at create)
+#   diffract-mcp-sync.sh config             # -> mcp_servers JSON (placeholders) for NEMOCLAW_MCP_SERVERS_B64 at create
+#   diffract-mcp-sync.sh apply [<sandbox>]  # re-apply providers + egress + mcp_servers config (post-create)
 #   diffract-mcp-sync.sh list               # human-readable: connected MCP servers
+#   diffract-mcp-sync.sh remove <name> [<sandbox>]
 # ─────────────────────────────────────────────────────────────────────────
 set -u
 RECORD_DIR="${DIFFRACT_MCP_DIR:-/var/lib/diffract/connected-mcp.d}"
@@ -21,34 +25,37 @@ OPENSHELL="${OPENSHELL_PATH:-openshell}"
 DOCKER="${DOCKER_PATH:-docker}"
 MODE="${1:-providers}"
 SANDBOX="${2:-${DIFFRACT_SANDBOX:-hermes}}"
-# The chat daemon connects to MCP servers IN-PROCESS (url-based config) using its own
-# HTTPS_PROXY + CA env. The L7 proxy attributes that cross-netns egress to `binary=-`
-# (it can't trace the daemon's process across the veth), so the egress allowlist must
-# include `-` alongside the python interpreters (which cover correctly-attributed
-# exec-session callers). See docs/bugs/openshell-egress-attribution-mcp-403.md.
+# `-` is the chat daemon's cross-netns (binary=-) attribution — required for chat.
 MCP_BINARIES=(/usr/bin/python3.13 /opt/hermes/.venv/bin/python3.13 /opt/hermes/.venv/bin/python3 /opt/hermes/.venv/bin/python /usr/bin/curl -)
 
 records() { ls "$RECORD_DIR"/*.conf 2>/dev/null; }
 
-# Source a record file in a subshell and echo "NAME|URL|SECRET|HOST|HEADER".
-# URL carries the real token for URL-token servers; HEADER+SECRET carry the
-# header name + real value for header-auth servers.
+# Source a record in a subshell and echo "NAME|URL|HOST|HEADER|SECRET_ENV|PROVIDER".
+# URL carries a ${SECRET_ENV} placeholder (url-token) or is clean (header-auth).
+# No real secret is stored in records — it lives in the OpenShell provider.
 record_fields() {
-  ( set -e; NAME=; URL=; SECRET=; HOST=; HEADER=; . "$1"
-    printf '%s|%s|%s|%s|%s\n' "$NAME" "$URL" "$SECRET" "$HOST" "$HEADER" )
+  ( set -e; NAME=; URL=; HOST=; HEADER=; SECRET_ENV=; PROVIDER=; . "$1"
+    printf '%s|%s|%s|%s|%s|%s\n' "$NAME" "$URL" "$HOST" "$HEADER" "$SECRET_ENV" "$PROVIDER" )
 }
 
 sandbox_cid() { "$DOCKER" ps -q -f "label=openshell.ai/sandbox-name=${SANDBOX}" 2>/dev/null | head -1; }
 
 case "$MODE" in
   providers)
-    # Token-in-Hermes model registers no OpenShell providers.
-    echo ""
+    # The provider holding each server's secret is attached at create (so OpenShell
+    # injects the placeholder env var the config resolves against).
+    out=""
+    for f in $(records); do
+      IFS='|' read -r NAME URL HOST HEADER SECRET_ENV PROVIDER < <(record_fields "$f")
+      [ -z "$PROVIDER" ] && continue
+      out="${out:+$out,}$PROVIDER"
+    done
+    echo "$out"
     ;;
 
   apply)
-    # Re-apply each server to the freshly-created sandbox: egress + mcp_servers
-    # config (with the real token). Exit non-zero if any server failed.
+    # Re-apply each server to the freshly-created sandbox: attach provider + egress +
+    # placeholder mcp_servers config. Exit non-zero if any server failed.
     rc=0
     cid="$(sandbox_cid)"
     if [ -z "$cid" ]; then
@@ -57,55 +64,54 @@ case "$MODE" in
     fi
     applied=0
     for f in $(records); do
-      IFS='|' read -r NAME URL SECRET HOST HEADER < <(record_fields "$f")
+      IFS='|' read -r NAME URL HOST HEADER SECRET_ENV PROVIDER < <(record_fields "$f")
       [ -z "$NAME" ] && continue
-      # Egress (idempotent: same --rule-name updates instead of duplicating).
+      # Provider: re-attach (idempotent) so the credential env var is injected.
+      "$OPENSHELL" sandbox provider detach "$SANDBOX" "$PROVIDER" >/dev/null 2>&1 || true
+      "$OPENSHELL" sandbox provider attach "$SANDBOX" "$PROVIDER" >/dev/null 2>&1 || true
+      # Egress (idempotent: same --rule-name updates instead of duplicating). `rest`
+      # so the proxy can substitute the credential placeholder; binaries incl `-`.
       binargs=(); for b in "${MCP_BINARIES[@]}"; do binargs+=(--binary "$b"); done
-      if "$OPENSHELL" policy update "$SANDBOX" --add-endpoint "${HOST}:full" --rule-name "${NAME}-mcp" "${binargs[@]}" --wait >/dev/null 2>&1; then
+      if "$OPENSHELL" policy update "$SANDBOX" --add-endpoint "${HOST}:full:rest" --rule-name "${NAME}-mcp" "${binargs[@]}" --wait >/dev/null 2>&1; then
         echo "[mcp-sync] egress allowed: $NAME -> $HOST"
       else
         echo "[mcp-sync] WARN: egress failed for $NAME -> $HOST"; rc=1
       fi
-      # Write mcp_servers (REAL token) into the agent config AS THE SANDBOX USER.
+      # Write the PLACEHOLDER mcp_servers entry AS THE SANDBOX USER.
       if "$DOCKER" exec -i -u sandbox -e HOME=/sandbox \
-          -e MNAME="$NAME" -e MURL="$URL" -e MHEADER="$HEADER" -e MSECRET="$SECRET" "$cid" \
+          -e MNAME="$NAME" -e MURL="$URL" -e MHEADER="$HEADER" -e MSECRET_ENV="$SECRET_ENV" "$cid" \
           /opt/hermes/.venv/bin/python - <<'PY' </dev/null >/dev/null 2>&1
 import os
 from ruamel.yaml import YAML
 p = "/sandbox/.hermes/config.yaml"
 yaml = YAML()
-yaml.width = 4096  # never wrap long MCP URLs/tokens across lines (folds a space -> breaks auth)
+yaml.width = 4096  # never wrap long MCP URLs/headers across lines
 try:
     with open(p) as f:
         cfg = yaml.load(f) or {}
 except Exception:
     cfg = {}
+entry = {"url": os.environ["MURL"], "enabled": True}
 if os.environ.get("MHEADER"):
-    # Header-auth servers: in-process url-based with a substituted header.
-    entry = {"url": os.environ["MURL"], "enabled": True,
-             "headers": {os.environ["MHEADER"]: os.environ["MSECRET"]}}
+    # Header value is the placeholder; the provider holds the full real value.
+    entry["headers"] = {os.environ["MHEADER"]: "${" + os.environ["MSECRET_ENV"] + "}"}
 else:
-    # URL-token servers: in-process url-based. The daemon connects via its own
-    # HTTPS_PROXY + CA env; the diffract_mcp egress rule admits the daemon's binary=-
-    # attribution. connect_timeout/timeout give startup discovery room to settle.
-    entry = {"url": os.environ["MURL"],
-             "connect_timeout": 120, "timeout": 120,
-             "enabled": True}
+    entry["connect_timeout"] = 120
+    entry["timeout"] = 120
 cfg.setdefault("mcp_servers", {})[os.environ["MNAME"]] = entry
 with open(p, "w") as f:
     yaml.dump(cfg, f)
 PY
       then
-        echo "[mcp-sync] configured + enabled mcp server: $NAME"
+        echo "[mcp-sync] configured mcp server: $NAME"
         applied=$((applied+1))
       else
         echo "[mcp-sync] WARN: failed to configure mcp server: $NAME"; rc=1
       fi
     done
-    # Reload the gateway so the running chat daemon re-reads mcp_servers.
     if [ "$applied" -gt 0 ]; then
       nemoclaw "$SANDBOX" recover >/dev/null 2>&1 \
-        && echo "[mcp-sync] reloaded gateway to load MCP tools" \
+        && echo "[mcp-sync] reloaded gateway" \
         || echo "[mcp-sync] WARN: gateway reload failed — MCP tools reach chat on the next recreate"
     fi
     exit $rc
@@ -113,23 +119,19 @@ PY
 
   config)
     # Emit mcp_servers JSON for CREATE-TIME injection (NEMOCLAW_MCP_SERVERS_B64).
-    # Holds the REAL token (URL-token in the URL; header servers as headers map).
+    # PLACEHOLDERS ONLY: ${SECRET_ENV} in the url (url-token) or the header value.
     if ! command -v jq >/dev/null 2>&1; then echo "{}"; exit 0; fi
     printf '{'
     first=1
     for f in $(records); do
-      IFS='|' read -r NAME URL SECRET HOST HEADER < <(record_fields "$f")
+      IFS='|' read -r NAME URL HOST HEADER SECRET_ENV PROVIDER < <(record_fields "$f")
       [ -z "$NAME" ] && continue
       [ $first -eq 0 ] && printf ','; first=0
       if [ -n "$HEADER" ]; then
         printf '%s:{"url":%s,"headers":{%s:%s},"enabled":true}' \
           "$(jq -nc --arg v "$NAME" '$v')" "$(jq -nc --arg v "$URL" '$v')" \
-          "$(jq -nc --arg v "$HEADER" '$v')" "$(jq -nc --arg v "$SECRET" '$v')"
+          "$(jq -nc --arg v "$HEADER" '$v')" "$(jq -nc --arg v "\${$SECRET_ENV}" '$v')"
       else
-        # URL-token: in-process url-based. The daemon connects via its own HTTPS_PROXY + CA
-        # env at startup discovery; the create-time diffract_mcp rule admits the daemon's
-        # binary=- attribution (see initial-policy.ts). connect_timeout/timeout give
-        # discovery room to settle on a fresh sandbox.
         printf '%s:{"url":%s,"connect_timeout":120,"timeout":120,"enabled":true}' \
           "$(jq -nc --arg v "$NAME" '$v')" "$(jq -nc --arg v "$URL" '$v')"
       fi
@@ -139,31 +141,39 @@ PY
 
   list)
     for f in $(records); do
-      IFS='|' read -r NAME URL SECRET HOST HEADER < <(record_fields "$f")
-      echo "mcp: $NAME  host=$HOST${HEADER:+  header=$HEADER}  (token-in-hermes)"
+      IFS='|' read -r NAME URL HOST HEADER SECRET_ENV PROVIDER < <(record_fields "$f")
+      echo "mcp: $NAME  host=$HOST${HEADER:+  header=$HEADER}  provider=$PROVIDER  (secret host-side)"
     done
     ;;
 
   remove)
-    # Disconnect a connected MCP server by name: delete the host record (so it is
-    # NOT re-applied at the next create), drop it from the running agent config,
-    # best-effort revoke its egress rule, then reload the gateway so chat stops
-    # using it. Usage: diffract-mcp-sync.sh remove <name> [<sandbox>]
+    # Disconnect: delete the host record + the OpenShell provider (real secret),
+    # drop it from the running agent config, revoke its egress, reload the gateway.
+    # Usage: diffract-mcp-sync.sh remove <name> [<sandbox>]
     RNAME="${2:-}"
     RSBX="${3:-${DIFFRACT_SANDBOX:-hermes}}"
     [ -z "$RNAME" ] && { echo "usage: $0 remove <name> [<sandbox>]" >&2; exit 2; }
+    RPROVIDER=""
+    if [ -f "$RECORD_DIR/${RNAME}.conf" ]; then
+      IFS='|' read -r _n _u _h _hd _se RPROVIDER < <(record_fields "$RECORD_DIR/${RNAME}.conf")
+    fi
     rm -f "$RECORD_DIR/${RNAME}.conf"
     echo "[mcp-sync] removed record: $RNAME"
+    # Drop the provider (real secret leaves the host store).
+    if [ -n "$RPROVIDER" ]; then
+      "$OPENSHELL" sandbox provider detach "$RSBX" "$RPROVIDER" >/dev/null 2>&1 || true
+      "$OPENSHELL" provider delete "$RPROVIDER" >/dev/null 2>&1 \
+        && echo "[mcp-sync] deleted provider: $RPROVIDER" || true
+    fi
     cid="$("$DOCKER" ps -q -f "label=openshell.ai/sandbox-name=${RSBX}" 2>/dev/null | head -1)"
     if [ -n "$cid" ]; then
-      # Drop the server from the running config (AS THE SANDBOX USER).
       "$DOCKER" exec -i -u sandbox -e HOME=/sandbox -e MNAME="$RNAME" "$cid" \
         /opt/hermes/.venv/bin/python - <<'PY' </dev/null >/dev/null 2>&1 || true
 import os
 from ruamel.yaml import YAML
 p = "/sandbox/.hermes/config.yaml"
 yaml = YAML()
-yaml.width = 4096  # never wrap long MCP URLs/tokens across lines (folds a space -> breaks auth)
+yaml.width = 4096
 try:
     with open(p) as f:
         cfg = yaml.load(f) or {}
@@ -174,7 +184,6 @@ srv.pop(os.environ["MNAME"], None)
 with open(p, "w") as f:
     yaml.dump(cfg, f)
 PY
-      # Best-effort: revoke the egress rule the connect flow added ("<name>-mcp").
       "$OPENSHELL" policy update "$RSBX" --remove-rule "${RNAME}-mcp" --wait >/dev/null 2>&1 || true
       nemoclaw "$RSBX" recover >/dev/null 2>&1 \
         && echo "[mcp-sync] reloaded gateway (server removed from chat)" \

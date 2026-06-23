@@ -1,30 +1,37 @@
 #!/bin/bash
 # ─────────────────────────────────────────────────────────────────────────
-# Diffract MCP connector — connect an MCP server (Zapier, Stitch, Notion, …)
-# to the Hermes agent.
+# Diffract MCP connector — SECURE host-side-secret model.
 #
-# MODEL (token-in-Hermes, by operator choice): the server's secret is written
-# DIRECTLY into the Hermes agent config (mcp_servers) — no OpenShell provider,
-# no ${PLACEHOLDER} rewriting. We keep ONLY the egress allowlist so the agent
-# can reach the MCP host (OpenShell denies all non-allowlisted egress, so this
-# is required for connectivity).
+# The real secret lives ONLY in an OpenShell provider (the host-side gateway
+# store, never on disk and never in the sandbox). The sandbox agent config and
+# the host record carry ONLY a ${SECRET_ENV} placeholder.
 #
-#   • URL-token servers (Zapier `?token=…`): the real token rides in the URL.
-#   • Header-auth servers (Stitch `X-Goog-Api-Key`): the real key rides in a
-#     request header.
+# HOW THE SECRET REACHES THE UPSTREAM WITHOUT THE AGENT EVER SEEING IT:
+#   1. The provider holds the real value under credential key SECRET_ENV.
+#   2. At sandbox CREATE, OpenShell injects an env var named SECRET_ENV whose
+#      VALUE is an opaque token (openshell:resolve:env:…) — NOT the real secret.
+#   3. Hermes expands ${SECRET_ENV} in the mcp_servers config to that opaque token
+#      (tools/mcp_tool.py _interpolate_env_vars).
+#   4. The OpenShell L7 proxy resolves the opaque token to the real secret at
+#      egress — but ONLY on TLS-terminated (`rest`) endpoints, in headers AND
+#      query params. So the egress rule below uses `:rest`.
+# Result: the real secret is in neither the config file nor the sandbox env. The
+# agent sees only ${SECRET_ENV} (config) / openshell:resolve:env:… (env). Proven
+# on-box. (See docs/bugs/openshell-egress-attribution-mcp-403.md.)
 #
-# TRADEOFF (accepted): the real secret now lives inside the sandbox config and
-# in the host-side record below (root-only, mode 600). It is no longer kept
-# host-side-only behind the L7 proxy. This is the operator-selected behaviour.
+#   • URL-token servers (Zapier ?token=…): url carries ${SECRET_ENV}; the provider
+#     holds the raw token.
+#   • Header-auth servers (GHL Authorization: Bearer …): url is clean; the header
+#     value is ${SECRET_ENV}; the provider holds the FULL header value
+#     (e.g. "Bearer pit-…"), so substitution yields the exact header GHL expects.
 #
-# The SECRET VALUE is read from THIS PROCESS'S ENVIRONMENT (never argv), so it
-# never appears in the process list:
+# Because OpenShell injects the credential only at sandbox CREATE, a freshly
+# connected server reaches the CHAT agent on the next redeploy/recreate.
 #
-#   ZAPIER_MCP_TOKEN=xxx diffract-mcp-connect.sh test zapier \
-#       'https://mcp.zapier.com/api/v1/connect?token=${ZAPIER_MCP_TOKEN}' \
-#       ZAPIER_MCP_TOKEN mcp.zapier.com:443
+# The SECRET value is read from THIS PROCESS's ENVIRONMENT under $SECRET_ENV
+# (never argv), so it never appears in the process list.
 #
-# Usage: diffract-mcp-connect.sh <sandbox> <name> <url[-with-placeholder]> <secretEnv> <host:port> [headerName]
+# Usage: diffract-mcp-connect.sh <sandbox> <name> <url[-with-${SECRET_ENV}]> <secretEnv> <host:port> [headerName]
 # ─────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
@@ -33,24 +40,25 @@ NAME="${2:-}"
 URL="${3:-}"
 SECRET_ENV="${4:-}"
 HOSTPORT="${5:-}"
-# Optional 6th arg: a request-header NAME (e.g. X-Goog-Api-Key) for header-auth
-# MCP servers. When set, the secret is injected via this header; otherwise the
-# secret is expected as a ${SECRET_ENV} placeholder embedded in the URL.
+# Optional 6th arg: request-header NAME (e.g. Authorization) for header-auth MCP
+# servers. When set, the secret ($SECRET_ENV) is the FULL header value to send.
 HEADER="${6:-}"
 
 RECORD_DIR="${DIFFRACT_MCP_DIR:-/var/lib/diffract/connected-mcp.d}"
 OPENSHELL="${OPENSHELL_PATH:-openshell}"
-# Binaries that may open the MCP connection from inside the sandbox: the Hermes
-# python (the MCP client) and curl (if the agent shells out). Egress is attributed
-# to these so the proxy permits the connection.
-MCP_BINARIES=(/usr/bin/python3.13 /opt/hermes/.venv/bin/python3.13 /opt/hermes/.venv/bin/python3 /opt/hermes/.venv/bin/python /usr/bin/curl)
+PROVIDER="${NAME}-mcp"
+# Binaries permitted to open the MCP egress. `-` is the chat daemon's own
+# cross-netns (binary=-) attribution: the agent connects in-process and the proxy
+# cannot trace it to a binary across the veth, so `-` MUST be allowed for chat to
+# work. The python/curl paths cover correctly-attributed exec-session callers.
+MCP_BINARIES=(/usr/bin/python3.13 /opt/hermes/.venv/bin/python3.13 /opt/hermes/.venv/bin/python3 /opt/hermes/.venv/bin/python /usr/bin/curl -)
 
 if [ -z "$SANDBOX" ] || [ -z "$NAME" ] || [ -z "$URL" ] || [ -z "$SECRET_ENV" ] || [ -z "$HOSTPORT" ]; then
-  echo "usage: diffract-mcp-connect.sh <sandbox> <name> <url[-with-placeholder]> <secretEnv> <host:port> [headerName]" >&2
+  echo "usage: diffract-mcp-connect.sh <sandbox> <name> <url[-with-\${SECRET_ENV}]> <secretEnv> <host:port> [headerName]" >&2
   exit 2
 fi
 
-# The secret value must be in the environment under $SECRET_ENV.
+# The secret value must be in the environment under $SECRET_ENV (never argv).
 SECRET="$(printenv "$SECRET_ENV" || true)"
 if [ -z "$SECRET" ]; then
   echo "[mcp-connect] missing secret in environment: $SECRET_ENV" >&2
@@ -58,60 +66,58 @@ if [ -z "$SECRET" ]; then
   exit 1
 fi
 
-# Resolve the REAL url: substitute the placeholder ${SECRET_ENV} with the real
-# secret (URL-token servers). Header servers pass a clean URL (no placeholder),
-# so this leaves it untouched.
-REAL_URL="${URL//\$\{$SECRET_ENV\}/$SECRET}"
+# 1. Store the real secret host-side in an OpenShell provider. The credential key
+#    is SECRET_ENV, so OpenShell injects an env var of that exact name that
+#    ${SECRET_ENV} in the config resolves against. The secret never touches the sandbox.
+if "$OPENSHELL" provider get "$PROVIDER" >/dev/null 2>&1; then
+  "$OPENSHELL" provider update "$PROVIDER" --credential "${SECRET_ENV}=${SECRET}" >/dev/null
+else
+  "$OPENSHELL" provider create --name "$PROVIDER" --type generic --credential "${SECRET_ENV}=${SECRET}" >/dev/null
+fi
+echo "[mcp-connect] stored secret host-side in provider '$PROVIDER' (key $SECRET_ENV)"
+# Attach now; re-attached at every create by diffract-mcp-sync.sh providers.
+"$OPENSHELL" sandbox provider detach "$SANDBOX" "$PROVIDER" >/dev/null 2>&1 || true
+"$OPENSHELL" sandbox provider attach "$SANDBOX" "$PROVIDER" >/dev/null 2>&1 || true
 
-# 1. Allow egress to ONLY the MCP host, attributed to the agent's binaries.
-#    This is the one OpenShell touchpoint we keep: without it the sandbox cannot
-#    reach the MCP host at all (deny-by-default egress).
-echo "[mcp-connect] allowing egress to: $HOSTPORT"
-bin_args=()
-for b in "${MCP_BINARIES[@]}"; do bin_args+=(--binary "$b"); done
+# 2. Allow egress to the MCP host. `rest` => the proxy TLS-terminates so it can
+#    substitute the credential placeholder; binaries include `-` for the daemon.
+bin_args=(); for b in "${MCP_BINARIES[@]}"; do bin_args+=(--binary "$b"); done
 "$OPENSHELL" policy update "$SANDBOX" \
-  --add-endpoint "${HOSTPORT}:full" \
+  --add-endpoint "${HOSTPORT}:full:rest" \
   --rule-name "${NAME}-mcp" \
   "${bin_args[@]}" --wait >/dev/null
-echo "[mcp-connect]   allowed ${HOSTPORT}"
+echo "[mcp-connect] allowed egress ${HOSTPORT} (rest, incl. binary=-)"
 
-# 2. Best-effort: drop any legacy OpenShell provider from the old (placeholder)
-#    model so it is not re-attached on future deploys.
-if "$OPENSHELL" provider get "${NAME}-mcp" >/dev/null 2>&1; then
-  "$OPENSHELL" sandbox provider detach "$SANDBOX" "${NAME}-mcp" >/dev/null 2>&1 || true
-  "$OPENSHELL" provider delete "${NAME}-mcp" >/dev/null 2>&1 || true
-  echo "[mcp-connect] removed legacy OpenShell provider '${NAME}-mcp' (token now lives in Hermes)"
-fi
-
-# 3. Record the connection host-side (root-only; survives recreate; re-applied at
-#    create by diffract-mcp-sync.sh). Holds the REAL secret — chmod 600 via umask.
-#    HEADER set => header-auth (URL clean, SECRET is the header value).
-#    HEADER empty => URL-token (REAL_URL already carries the token).
+# 3. Record the connection host-side — PLACEHOLDER ONLY (no real secret). Survives
+#    recreate; re-applied at create by diffract-mcp-sync.sh. URL carries ${SECRET_ENV}
+#    for url-token servers, or is clean for header-auth (HEADER set).
 mkdir -p "$RECORD_DIR"
 umask 077
 cat > "$RECORD_DIR/${NAME}.conf" <<EOF
 NAME=$(printf '%q' "$NAME")
-URL=$(printf '%q' "$REAL_URL")
-SECRET=$(printf '%q' "$SECRET")
+URL=$(printf '%q' "$URL")
 HOST=$(printf '%q' "$HOSTPORT")
 HEADER=$(printf '%q' "$HEADER")
+SECRET_ENV=$(printf '%q' "$SECRET_ENV")
+PROVIDER=$(printf '%q' "$PROVIDER")
 EOF
-echo "[mcp-connect] recorded '$NAME' in $RECORD_DIR/${NAME}.conf (re-applied at next create)"
+echo "[mcp-connect] recorded '$NAME' (placeholder only) in $RECORD_DIR/${NAME}.conf"
 
-# 4. Write the server into the RUNNING sandbox's agent config with the REAL token,
-#    AS THE SANDBOX USER (HOME=/sandbox) so it lands in /sandbox/.hermes/config.yaml.
+# 4. Write the placeholder server into the running sandbox config so the dashboard
+#    and exec sessions see it. It resolves in CHAT once the provider injects
+#    $SECRET_ENV at the next create — OpenShell binds credentials at create, so a
+#    redeploy is required for the chat agent to use it.
 if command -v docker >/dev/null 2>&1; then
   cid="$(docker ps -q -f "label=openshell.ai/sandbox-name=${SANDBOX}" 2>/dev/null | head -1 || true)"
   if [ -n "$cid" ]; then
-    echo "[mcp-connect] adding '$NAME' to the running sandbox agent config"
     docker exec -i -u sandbox -e HOME=/sandbox \
-      -e MNAME="$NAME" -e MURL="$REAL_URL" -e MHEADER="$HEADER" -e MSECRET="$SECRET" "$cid" \
+      -e MNAME="$NAME" -e MURL="$URL" -e MHEADER="$HEADER" -e MSECRET_ENV="$SECRET_ENV" "$cid" \
       /opt/hermes/.venv/bin/python - <<'PY' >/dev/null 2>&1 || true
 import os
 from ruamel.yaml import YAML
 p = "/sandbox/.hermes/config.yaml"
 yaml = YAML()
-yaml.width = 4096  # never wrap long MCP URLs/tokens across lines (folds a space -> breaks auth)
+yaml.width = 4096  # never wrap long MCP URLs across lines
 try:
     with open(p) as f:
         cfg = yaml.load(f) or {}
@@ -119,7 +125,8 @@ except Exception:
     cfg = {}
 entry = {"url": os.environ["MURL"], "enabled": True}
 if os.environ.get("MHEADER"):
-    entry["headers"] = {os.environ["MHEADER"]: os.environ["MSECRET"]}
+    # Header value is the placeholder; the provider holds the full real value.
+    entry["headers"] = {os.environ["MHEADER"]: "${" + os.environ["MSECRET_ENV"] + "}"}
 cfg.setdefault("mcp_servers", {})[os.environ["MNAME"]] = entry
 with open(p, "w") as f:
     yaml.dump(cfg, f)
@@ -127,18 +134,4 @@ PY
   fi
 fi
 
-# 5. Reload the running gateway so the CHAT agent picks up the new MCP server
-#    immediately. The gateway caches its config + egress at start, so without a
-#    reload a freshly-connected server keeps failing ("initial connection failed")
-#    until the next redeploy. `nemoclaw <sandbox> recover` reloads it in place.
-#    Best-effort — the server is already recorded, so a redeploy still works if
-#    this fails. (The host record is also re-applied at every create.)
-if command -v nemoclaw >/dev/null 2>&1; then
-  if nemoclaw "$SANDBOX" recover >/dev/null 2>&1; then
-    echo "[mcp-connect] reloaded gateway — '$NAME' is usable in chat now (start a fresh chat)"
-  else
-    echo "[mcp-connect] NOTE: gateway reload failed — redeploy the sandbox to use '$NAME' in chat"
-  fi
-fi
-
-echo "[mcp-connect] done — '$NAME' is wired to sandbox '$SANDBOX'."
+echo "[mcp-connect] done — '$NAME' wired to '$SANDBOX'. The secret stays host-side; the agent sees only a placeholder. Redeploy to use it in chat."
