@@ -30,7 +30,13 @@ export const FB_OAUTH_COOKIE = "fb_oauth";
 // Permissions requested at login. Covers all four surfaces (FB comments + DMs,
 // IG comments + DMs). In dev mode only app-role users can grant these; real
 // customers need Meta App Review (Advanced Access) per scope.
-export const FACEBOOK_SCOPES = [
+//
+// A scope is only requestable once the Facebook app has ACTIVATED it (Use Cases /
+// Permissions). Requesting an inactive scope makes the consent dialog fail with
+// "Invalid Scopes". So the exact set is overridable per-deployment via the
+// FACEBOOK_SCOPES env (comma-separated) — tune it to what the app has enabled
+// without a rebuild (env edit + restart).
+const DEFAULT_FACEBOOK_SCOPES = [
   "pages_show_list",
   "pages_read_engagement",
   "pages_manage_engagement",
@@ -41,6 +47,11 @@ export const FACEBOOK_SCOPES = [
   "instagram_manage_comments",
   "instagram_manage_messages",
 ].join(",");
+
+export function facebookScopes(): string {
+  const v = process.env.FACEBOOK_SCOPES;
+  return v && v.trim().length > 0 ? v.trim() : DEFAULT_FACEBOOK_SCOPES;
+}
 
 export function appId(): string | null {
   const v = process.env.FACEBOOK_APP_ID;

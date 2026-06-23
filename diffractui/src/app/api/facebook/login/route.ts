@@ -6,7 +6,7 @@ import { SESSION_COOKIE, verifySessionToken } from "@/lib/auth";
 import {
   appId,
   redirectUri,
-  FACEBOOK_SCOPES,
+  facebookScopes,
   FB_OAUTH_COOKIE,
   GRAPH_VERSION,
 } from "@/lib/facebook";
@@ -47,7 +47,7 @@ export async function GET(req: Request): Promise<Response> {
     `&redirect_uri=${encodeURIComponent(redirect)}` +
     `&state=${encodeURIComponent(state)}` +
     `&response_type=code` +
-    `&scope=${encodeURIComponent(FACEBOOK_SCOPES)}`;
+    `&scope=${encodeURIComponent(facebookScopes())}`;
 
   const res = NextResponse.redirect(dialog);
   res.cookies.set(FB_OAUTH_COOKIE, JSON.stringify({ state, sandbox }), {
