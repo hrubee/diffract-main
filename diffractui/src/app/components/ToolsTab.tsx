@@ -50,9 +50,18 @@ const BLANK_REST = {
 
 const AUTH_PRESETS = ["Authorization: Bearer", "Authorization: Token", "x-api-key:", "Custom…"];
 
-// "Connect MCP" form — connect an MCP server (Zapier, Notion, …). Paste the
-// server URL; any embedded token is extracted and held host-side automatically.
-const BLANK_MCP = { name: "", url: "", authHeader: "", apiKey: "" };
+// "Connect MCP" form — connect an MCP server (Zapier, GoHighLevel, Notion, …).
+// Paste the server URL; the secret is held host-side and the agent sees only a
+// placeholder. `authStyle` picks how the secret is sent: in the URL (Zapier) or in
+// a header. The header presets carry the scheme (e.g. "Authorization: Bearer") so
+// the full header value is constructed correctly — GoHighLevel needs exactly that.
+const MCP_AUTH_STYLES = [
+  "URL-token (token already in the URL)",
+  "Authorization: Bearer",
+  "x-api-key:",
+  "Custom header…",
+];
+const BLANK_MCP = { name: "", url: "", authStyle: MCP_AUTH_STYLES[0], authCustom: "", apiKey: "" };
 
 function Badge({ ok, label }: { ok: boolean; label: string }) {
   return (
@@ -348,13 +357,26 @@ export default function ToolsTab({
     try {
       const name = mcpForm.name.trim();
       const url = mcpForm.url.trim();
-      const authHeader = mcpForm.authHeader.trim();
-      const apiKey = mcpForm.apiKey.trim();
       if (!name) throw new Error("Name is required (lowercase, a-z0-9-)");
       if (!/^https:\/\//.test(url)) throw new Error("Paste the MCP server URL (https://…)");
-      // Header-auth servers (e.g. Stitch) need both the header name and the key.
-      if ((authHeader && !apiKey) || (!authHeader && apiKey)) {
-        throw new Error("For a header-authenticated server, provide BOTH the auth header and the API key.");
+
+      // Build the auth header from the selected style. URL-token => no header.
+      // A header spec is "<HeaderName>[: <scheme>]" — the scheme (e.g. Bearer) is
+      // prepended to the key so the FULL header value is sent (GoHighLevel needs
+      // "Authorization: Bearer <token>", not a bare token under a custom header).
+      let authHeader = "";
+      let apiKey = "";
+      const urlToken = mcpForm.authStyle.startsWith("URL-token");
+      if (!urlToken) {
+        const spec = (mcpForm.authStyle === "Custom header…" ? mcpForm.authCustom : mcpForm.authStyle).trim();
+        const rawKey = mcpForm.apiKey.trim();
+        if (!spec) throw new Error("Enter the header name (e.g. Authorization or X-Api-Key).");
+        if (!rawKey) throw new Error("Enter the API key / token for the header.");
+        const ci = spec.indexOf(":");
+        const headerName = (ci >= 0 ? spec.slice(0, ci) : spec).trim();
+        const scheme = (ci >= 0 ? spec.slice(ci + 1) : "").trim();
+        authHeader = headerName;
+        apiKey = scheme ? `${scheme} ${rawKey}` : rawKey;
       }
       const r = await fetch("/api/mcp", {
         method: "POST",
@@ -511,15 +533,31 @@ export default function ToolsTab({
           ) : addMode === "mcp" ? (
             <>
               <p className="text-nc-text-muted text-xs">
-                Connect an MCP server. Two styles, both secured host-side (the agent only sees a
-                placeholder):
-                <br />• <b>URL-token</b> (Zapier, …): paste the URL with its <code>?token=…</code> — leave the header fields blank.
-                <br />• <b>Header-auth</b> (e.g. Stitch): paste the plain URL, then set the auth header + API key below.
+                Connect an MCP server. The secret is held host-side — the agent only ever sees a
+                placeholder. Pick how the server authenticates:
+                <br />• <b>URL-token</b> (Zapier): paste the URL with its <code>?token=…</code>.
+                <br />• <b>Authorization: Bearer</b> (GoHighLevel): paste the plain URL and your token — the <code>Bearer</code> scheme is added for you.
               </p>
-              <Field label="Name *" value={mcpForm.name} onChange={(v) => setMcpForm({ ...mcpForm, name: v })} placeholder="stitch" hint="lowercase, a-z0-9-" />
-              <Field label="MCP server URL *" value={mcpForm.url} onChange={(v) => setMcpForm({ ...mcpForm, url: v })} placeholder="https://stitch.googleapis.com/mcp" hint="https URL (with its token for URL-token servers, or plain for header-auth)" />
-              <Field label="Auth header (header-auth only)" value={mcpForm.authHeader} onChange={(v) => setMcpForm({ ...mcpForm, authHeader: v })} placeholder="X-Goog-Api-Key" hint="header name the server expects (leave blank for URL-token servers)" />
-              <Field label="API key (header-auth only)" value={mcpForm.apiKey} onChange={(v) => setMcpForm({ ...mcpForm, apiKey: v })} placeholder="your API key" hint="held host-side; the agent only sees a placeholder" />
+              <Field label="Name *" value={mcpForm.name} onChange={(v) => setMcpForm({ ...mcpForm, name: v })} placeholder="myghl" hint="lowercase, a-z0-9-" />
+              <Field label="MCP server URL *" value={mcpForm.url} onChange={(v) => setMcpForm({ ...mcpForm, url: v })} placeholder="https://services.leadconnectorhq.com/mcp/" hint="https URL (include the ?token=… for URL-token servers; plain for header auth)" />
+              <label className="block">
+                <span className="text-nc-text-dim text-xs">Authentication</span>
+                <select
+                  value={mcpForm.authStyle}
+                  onChange={(e) => setMcpForm({ ...mcpForm, authStyle: e.target.value })}
+                  className="mt-0.5 w-full rounded border border-nc-border bg-nc-bg px-2 py-1 text-xs text-nc-text"
+                >
+                  {MCP_AUTH_STYLES.map((s) => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+              </label>
+              {mcpForm.authStyle === "Custom header…" && (
+                <Field label="Custom header" value={mcpForm.authCustom} onChange={(v) => setMcpForm({ ...mcpForm, authCustom: v })} placeholder="X-Api-Key  or  Authorization: Bearer" hint="header name, optionally with a scheme after a colon" />
+              )}
+              {!mcpForm.authStyle.startsWith("URL-token") && (
+                <Field label="API key / token *" value={mcpForm.apiKey} onChange={(v) => setMcpForm({ ...mcpForm, apiKey: v })} placeholder="pit-… (just the token)" hint="held host-side; the agent only sees a placeholder. Don't include the scheme — it's added for you." />
+              )}
               <div className="flex items-center gap-2 pt-1">
                 <button
                   disabled={adding || !mcpForm.name || !mcpForm.url}
