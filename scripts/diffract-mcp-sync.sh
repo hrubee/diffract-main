@@ -97,11 +97,13 @@ except Exception:
 entry = {"url": os.environ["MURL"], "enabled": True, "connect_timeout": 120, "timeout": 120}
 headers = {}
 if os.environ.get("MHEADER"):
-    # Header value is the placeholder; the provider holds the full real value.
+    # Header value is the placeholder; the provider holds the real value.
     headers[os.environ["MHEADER"]] = "${" + os.environ["MSECRET_ENV"] + "}"
 if os.environ.get("MEXTRA_B64"):
     try:
-        headers.update(json.loads(base64.b64decode(os.environ["MEXTRA_B64"])))
+        # name->key map; every value is a host-side placeholder too.
+        for hname, hkey in json.loads(base64.b64decode(os.environ["MEXTRA_B64"])).items():
+            headers[hname] = "${" + hkey + "}"
     except Exception:
         pass
 if headers:
@@ -135,16 +137,16 @@ PY
       IFS='|' read -r NAME URL HOST HEADER SECRET_ENV PROVIDER EXTRA_HEADERS_B64 < <(record_fields "$f")
       [ -z "$NAME" ] && continue
       [ $first -eq 0 ] && printf ','; first=0
-      # Non-secret extra headers (e.g. GHL locationId), decoded from base64 JSON.
+      # Extra headers as a name->KEY map (base64 JSON). Each value becomes a ${KEY}
+      # placeholder too, so NOTHING is verbatim in the agent config.
       extra='{}'
       [ -n "$EXTRA_HEADERS_B64" ] && extra="$(printf '%s' "$EXTRA_HEADERS_B64" | base64 -d 2>/dev/null || echo '{}')"
       if [ -n "$HEADER" ] || [ "$extra" != "{}" ]; then
-        # header-auth and/or static headers: secret header (placeholder) + extra headers.
         sec='{}'
         [ -n "$HEADER" ] && sec="$(jq -nc --arg h "$HEADER" --arg v "\${$SECRET_ENV}" '{($h):$v}')"
         printf '%s:%s' "$(jq -nc --arg v "$NAME" '$v')" \
           "$(jq -nc --arg url "$URL" --argjson sec "$sec" --argjson extra "$extra" \
-            '{url:$url, headers:($sec+$extra), connect_timeout:120, timeout:120, enabled:true}')"
+            '{url:$url, headers:($sec + ($extra | with_entries(.value = "${" + .value + "}"))), connect_timeout:120, timeout:120, enabled:true}')"
       else
         printf '%s:{"url":%s,"connect_timeout":120,"timeout":120,"enabled":true}' \
           "$(jq -nc --arg v "$NAME" '$v')" "$(jq -nc --arg v "$URL" '$v')"

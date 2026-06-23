@@ -66,23 +66,30 @@ if [ -z "$SECRET" ]; then
   exit 1
 fi
 
-# Optional NON-SECRET extra headers (e.g. GoHighLevel's `locationId`) as a JSON object
-# in $DIFFRACT_MCP_EXTRA_HEADERS, e.g. {"locationId":"abc123"}. Stored plain (not via a
-# provider — they are identifiers, not secrets) and emitted verbatim in the agent config.
+# Additional headers (e.g. GoHighLevel's `locationId`) — their VALUES are also held
+# host-side, so NOTHING is visible to the agent. The route derives one provider
+# credential key per header and passes DIFFRACT_MCP_EXTRA_KEYS, a JSON map
+# {headerName: ENV_KEY}; each ENV_KEY's value is in this process's env. We store the
+# name->key map in the record (EXTRA_HEADERS_B64) and the values in the provider.
+cred_args=(--credential "${SECRET_ENV}=${SECRET}")
 EXTRA_HEADERS_B64=""
-if [ -n "${DIFFRACT_MCP_EXTRA_HEADERS:-}" ] && [ "${DIFFRACT_MCP_EXTRA_HEADERS}" != "{}" ]; then
-  EXTRA_HEADERS_B64="$(printf '%s' "$DIFFRACT_MCP_EXTRA_HEADERS" | base64 -w0)"
+if [ -n "${DIFFRACT_MCP_EXTRA_KEYS:-}" ] && [ "${DIFFRACT_MCP_EXTRA_KEYS}" != "{}" ]; then
+  EXTRA_HEADERS_B64="$(printf '%s' "$DIFFRACT_MCP_EXTRA_KEYS" | base64 -w0)"
+  while IFS= read -r ekey; do
+    [ -z "$ekey" ] && continue
+    cred_args+=(--credential "${ekey}=$(printenv "$ekey" || true)")
+  done < <(printf '%s' "$DIFFRACT_MCP_EXTRA_KEYS" | jq -r '.[]' 2>/dev/null)
 fi
 
-# 1. Store the real secret host-side in an OpenShell provider. The credential key
-#    is SECRET_ENV, so OpenShell injects an env var of that exact name that
-#    ${SECRET_ENV} in the config resolves against. The secret never touches the sandbox.
+# 1. Store EVERY header value host-side in one OpenShell provider. OpenShell injects an
+#    env var per credential key; ${KEY} in the config resolves to an opaque token the L7
+#    proxy swaps for the real value at egress. No header value ever touches the sandbox.
 if "$OPENSHELL" provider get "$PROVIDER" >/dev/null 2>&1; then
-  "$OPENSHELL" provider update "$PROVIDER" --credential "${SECRET_ENV}=${SECRET}" >/dev/null
+  "$OPENSHELL" provider update "$PROVIDER" "${cred_args[@]}" >/dev/null
 else
-  "$OPENSHELL" provider create --name "$PROVIDER" --type generic --credential "${SECRET_ENV}=${SECRET}" >/dev/null
+  "$OPENSHELL" provider create --name "$PROVIDER" --type generic "${cred_args[@]}" >/dev/null
 fi
-echo "[mcp-connect] stored secret host-side in provider '$PROVIDER' (key $SECRET_ENV)"
+echo "[mcp-connect] stored $(( ${#cred_args[@]} / 2 )) header value(s) host-side in provider '$PROVIDER'"
 # Attach now; re-attached at every create by diffract-mcp-sync.sh providers.
 "$OPENSHELL" sandbox provider detach "$SANDBOX" "$PROVIDER" >/dev/null 2>&1 || true
 "$OPENSHELL" sandbox provider attach "$SANDBOX" "$PROVIDER" >/dev/null 2>&1 || true
@@ -136,11 +143,13 @@ except Exception:
 entry = {"url": os.environ["MURL"], "enabled": True}
 headers = {}
 if os.environ.get("MHEADER"):
-    # Header value is the placeholder; the provider holds the full real value.
+    # Header value is the placeholder; the provider holds the real value.
     headers[os.environ["MHEADER"]] = "${" + os.environ["MSECRET_ENV"] + "}"
 if os.environ.get("MEXTRA_B64"):
     try:
-        headers.update(json.loads(base64.b64decode(os.environ["MEXTRA_B64"])))
+        # name->key map; every value is a host-side placeholder too.
+        for hname, hkey in json.loads(base64.b64decode(os.environ["MEXTRA_B64"])).items():
+            headers[hname] = "${" + hkey + "}"
     except Exception:
         pass
 if headers:

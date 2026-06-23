@@ -598,7 +598,7 @@ export default function ToolsTab({
                 <Field label="API key / token *" value={mcpForm.apiKey} onChange={(v) => setMcpForm({ ...mcpForm, apiKey: v })} placeholder="pit-… (just the token)" hint="held host-side; the agent only sees a placeholder. Don't include the scheme — it's added for you." />
               )}
               <label className="block">
-                <span className="text-nc-text-dim text-xs">Additional headers (optional, non-secret)</span>
+                <span className="text-nc-text-dim text-xs">Additional headers (optional)</span>
                 <textarea
                   value={mcpForm.extra}
                   onChange={(e) => setMcpForm({ ...mcpForm, extra: e.target.value })}
@@ -607,8 +607,9 @@ export default function ToolsTab({
                   className="mt-0.5 w-full rounded border border-nc-border bg-nc-bg px-2 py-1 font-mono text-xs text-nc-text"
                 />
                 <span className="text-nc-text-muted text-[11px]">
-                  One <code>Name: Value</code> per line, sent verbatim. GoHighLevel needs{" "}
-                  <code>locationId: &lt;your sub-account id&gt;</code> here.
+                  One <code>Name: Value</code> per line. Each value is held host-side too — the
+                  agent only ever sees a placeholder. GoHighLevel needs{" "}
+                  <code>locationId: &lt;your sub-account id&gt;</code>.
                 </span>
               </label>
               <div className="flex items-center gap-2 pt-1">

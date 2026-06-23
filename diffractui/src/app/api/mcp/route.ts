@@ -219,12 +219,27 @@ export async function POST(req: Request): Promise<Response> {
   }
 
   // The secret flows to the script ONLY via the child env (never argv/logs).
+  // Every extra header value is ALSO held host-side (nothing visible to the agent):
+  // derive a provider-credential env key per header, pass each value via env under that
+  // key, and pass the name->key map. The connect script stores the values in the provider
+  // and writes ${KEY} placeholders into the config.
+  const extraKeyMap: Record<string, string> = {};
+  const extraValueEnv: Record<string, string> = {};
+  const keyPrefix = `${secretEnv.replace(/_TOKEN$/, "")}_H_`;
+  for (const [hn, hv] of Object.entries(extraHeaders)) {
+    const key = keyPrefix + hn.toUpperCase().replace(/[^A-Z0-9]+/g, "_");
+    extraKeyMap[hn] = key;
+    extraValueEnv[key] = hv;
+  }
+
+  // The secret(s) flow to the script ONLY via the child env (never argv/logs).
   const childEnv: NodeJS.ProcessEnv = {
     ...process.env,
     PATH: `${process.env.PATH || ""}:${path.dirname(process.execPath)}:/usr/local/bin`,
     [secretEnv]: secretValue,
-    ...(Object.keys(extraHeaders).length
-      ? { DIFFRACT_MCP_EXTRA_HEADERS: JSON.stringify(extraHeaders) }
+    ...extraValueEnv,
+    ...(Object.keys(extraKeyMap).length
+      ? { DIFFRACT_MCP_EXTRA_KEYS: JSON.stringify(extraKeyMap) }
       : {}),
   };
 
