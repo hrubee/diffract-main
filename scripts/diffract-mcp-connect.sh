@@ -66,6 +66,14 @@ if [ -z "$SECRET" ]; then
   exit 1
 fi
 
+# Optional NON-SECRET extra headers (e.g. GoHighLevel's `locationId`) as a JSON object
+# in $DIFFRACT_MCP_EXTRA_HEADERS, e.g. {"locationId":"abc123"}. Stored plain (not via a
+# provider — they are identifiers, not secrets) and emitted verbatim in the agent config.
+EXTRA_HEADERS_B64=""
+if [ -n "${DIFFRACT_MCP_EXTRA_HEADERS:-}" ] && [ "${DIFFRACT_MCP_EXTRA_HEADERS}" != "{}" ]; then
+  EXTRA_HEADERS_B64="$(printf '%s' "$DIFFRACT_MCP_EXTRA_HEADERS" | base64 -w0)"
+fi
+
 # 1. Store the real secret host-side in an OpenShell provider. The credential key
 #    is SECRET_ENV, so OpenShell injects an env var of that exact name that
 #    ${SECRET_ENV} in the config resolves against. The secret never touches the sandbox.
@@ -100,6 +108,7 @@ HOST=$(printf '%q' "$HOSTPORT")
 HEADER=$(printf '%q' "$HEADER")
 SECRET_ENV=$(printf '%q' "$SECRET_ENV")
 PROVIDER=$(printf '%q' "$PROVIDER")
+EXTRA_HEADERS_B64=$(printf '%q' "$EXTRA_HEADERS_B64")
 EOF
 echo "[mcp-connect] recorded '$NAME' (placeholder only) in $RECORD_DIR/${NAME}.conf"
 
@@ -111,9 +120,10 @@ if command -v docker >/dev/null 2>&1; then
   cid="$(docker ps -q -f "label=openshell.ai/sandbox-name=${SANDBOX}" 2>/dev/null | head -1 || true)"
   if [ -n "$cid" ]; then
     docker exec -i -u sandbox -e HOME=/sandbox \
-      -e MNAME="$NAME" -e MURL="$URL" -e MHEADER="$HEADER" -e MSECRET_ENV="$SECRET_ENV" "$cid" \
+      -e MNAME="$NAME" -e MURL="$URL" -e MHEADER="$HEADER" -e MSECRET_ENV="$SECRET_ENV" \
+      -e MEXTRA_B64="$EXTRA_HEADERS_B64" "$cid" \
       /opt/hermes/.venv/bin/python - <<'PY' >/dev/null 2>&1 || true
-import os
+import os, json, base64
 from ruamel.yaml import YAML
 p = "/sandbox/.hermes/config.yaml"
 yaml = YAML()
@@ -124,9 +134,17 @@ try:
 except Exception:
     cfg = {}
 entry = {"url": os.environ["MURL"], "enabled": True}
+headers = {}
 if os.environ.get("MHEADER"):
     # Header value is the placeholder; the provider holds the full real value.
-    entry["headers"] = {os.environ["MHEADER"]: "${" + os.environ["MSECRET_ENV"] + "}"}
+    headers[os.environ["MHEADER"]] = "${" + os.environ["MSECRET_ENV"] + "}"
+if os.environ.get("MEXTRA_B64"):
+    try:
+        headers.update(json.loads(base64.b64decode(os.environ["MEXTRA_B64"])))
+    except Exception:
+        pass
+if headers:
+    entry["headers"] = headers
 cfg.setdefault("mcp_servers", {})[os.environ["MNAME"]] = entry
 with open(p, "w") as f:
     yaml.dump(cfg, f)

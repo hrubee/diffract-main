@@ -61,7 +61,7 @@ const MCP_AUTH_STYLES = [
   "x-api-key:",
   "Custom header…",
 ];
-const BLANK_MCP = { name: "", url: "", authStyle: MCP_AUTH_STYLES[0], authCustom: "", apiKey: "" };
+const BLANK_MCP = { name: "", url: "", authStyle: MCP_AUTH_STYLES[0], authCustom: "", apiKey: "", extra: "" };
 
 function Badge({ ok, label }: { ok: boolean; label: string }) {
   return (
@@ -403,10 +403,24 @@ export default function ToolsTab({
         authHeader = headerName;
         apiKey = scheme ? `${scheme} ${rawKey}` : rawKey;
       }
+
+      // Additional NON-SECRET headers (one "Name: Value" per line) — e.g. GHL's
+      // `locationId`. Sent verbatim (no provider) alongside the auth header.
+      const extraHeaders: Record<string, string> = {};
+      for (const line of mcpForm.extra.split("\n")) {
+        const t = line.trim();
+        if (!t) continue;
+        const ci = t.indexOf(":");
+        if (ci < 0) throw new Error(`Header "${t}" needs a colon, e.g. locationId: abc123`);
+        const hn = t.slice(0, ci).trim();
+        const hv = t.slice(ci + 1).trim();
+        if (hn && hv) extraHeaders[hn] = hv;
+      }
+
       const r = await fetch("/api/mcp", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sandbox: sandboxName, name, url, authHeader, apiKey }),
+        body: JSON.stringify({ sandbox: sandboxName, name, url, authHeader, apiKey, extraHeaders }),
       });
       const data = await r.json();
       if (!r.ok || !data.ok) throw new Error(data.error || "Connect failed");
@@ -583,6 +597,20 @@ export default function ToolsTab({
               {!mcpForm.authStyle.startsWith("URL-token") && (
                 <Field label="API key / token *" value={mcpForm.apiKey} onChange={(v) => setMcpForm({ ...mcpForm, apiKey: v })} placeholder="pit-… (just the token)" hint="held host-side; the agent only sees a placeholder. Don't include the scheme — it's added for you." />
               )}
+              <label className="block">
+                <span className="text-nc-text-dim text-xs">Additional headers (optional, non-secret)</span>
+                <textarea
+                  value={mcpForm.extra}
+                  onChange={(e) => setMcpForm({ ...mcpForm, extra: e.target.value })}
+                  rows={2}
+                  placeholder={"locationId: YOUR_LOCATION_ID"}
+                  className="mt-0.5 w-full rounded border border-nc-border bg-nc-bg px-2 py-1 font-mono text-xs text-nc-text"
+                />
+                <span className="text-nc-text-muted text-[11px]">
+                  One <code>Name: Value</code> per line, sent verbatim. GoHighLevel needs{" "}
+                  <code>locationId: &lt;your sub-account id&gt;</code> here.
+                </span>
+              </label>
               <div className="flex items-center gap-2 pt-1">
                 <button
                   disabled={adding || !mcpForm.name || !mcpForm.url}

@@ -30,12 +30,14 @@ MCP_BINARIES=(/usr/bin/python3.13 /opt/hermes/.venv/bin/python3.13 /opt/hermes/.
 
 records() { ls "$RECORD_DIR"/*.conf 2>/dev/null; }
 
-# Source a record in a subshell and echo "NAME|URL|HOST|HEADER|SECRET_ENV|PROVIDER".
-# URL carries a ${SECRET_ENV} placeholder (url-token) or is clean (header-auth).
-# No real secret is stored in records — it lives in the OpenShell provider.
+# Source a record in a subshell and echo
+# "NAME|URL|HOST|HEADER|SECRET_ENV|PROVIDER|EXTRA_HEADERS_B64". URL carries a
+# ${SECRET_ENV} placeholder (url-token) or is clean (header-auth). EXTRA_HEADERS_B64 is
+# base64 JSON of non-secret static headers (e.g. GHL locationId). No real secret is
+# stored in records — it lives in the OpenShell provider. (base64 has no '|', safe.)
 record_fields() {
-  ( set -e; NAME=; URL=; HOST=; HEADER=; SECRET_ENV=; PROVIDER=; . "$1"
-    printf '%s|%s|%s|%s|%s|%s\n' "$NAME" "$URL" "$HOST" "$HEADER" "$SECRET_ENV" "$PROVIDER" )
+  ( set -e; NAME=; URL=; HOST=; HEADER=; SECRET_ENV=; PROVIDER=; EXTRA_HEADERS_B64=; . "$1"
+    printf '%s|%s|%s|%s|%s|%s|%s\n' "$NAME" "$URL" "$HOST" "$HEADER" "$SECRET_ENV" "$PROVIDER" "$EXTRA_HEADERS_B64" )
 }
 
 sandbox_cid() { "$DOCKER" ps -q -f "label=openshell.ai/sandbox-name=${SANDBOX}" 2>/dev/null | head -1; }
@@ -46,7 +48,7 @@ case "$MODE" in
     # injects the placeholder env var the config resolves against).
     out=""
     for f in $(records); do
-      IFS='|' read -r NAME URL HOST HEADER SECRET_ENV PROVIDER < <(record_fields "$f")
+      IFS='|' read -r NAME URL HOST HEADER SECRET_ENV PROVIDER EXTRA_HEADERS_B64 < <(record_fields "$f")
       [ -z "$PROVIDER" ] && continue
       out="${out:+$out,}$PROVIDER"
     done
@@ -64,7 +66,7 @@ case "$MODE" in
     fi
     applied=0
     for f in $(records); do
-      IFS='|' read -r NAME URL HOST HEADER SECRET_ENV PROVIDER < <(record_fields "$f")
+      IFS='|' read -r NAME URL HOST HEADER SECRET_ENV PROVIDER EXTRA_HEADERS_B64 < <(record_fields "$f")
       [ -z "$NAME" ] && continue
       # Provider: re-attach (idempotent) so the credential env var is injected.
       "$OPENSHELL" sandbox provider detach "$SANDBOX" "$PROVIDER" >/dev/null 2>&1 || true
@@ -79,9 +81,10 @@ case "$MODE" in
       fi
       # Write the PLACEHOLDER mcp_servers entry AS THE SANDBOX USER.
       if "$DOCKER" exec -i -u sandbox -e HOME=/sandbox \
-          -e MNAME="$NAME" -e MURL="$URL" -e MHEADER="$HEADER" -e MSECRET_ENV="$SECRET_ENV" "$cid" \
+          -e MNAME="$NAME" -e MURL="$URL" -e MHEADER="$HEADER" -e MSECRET_ENV="$SECRET_ENV" \
+          -e MEXTRA_B64="$EXTRA_HEADERS_B64" "$cid" \
           /opt/hermes/.venv/bin/python - <<'PY' </dev/null >/dev/null 2>&1
-import os
+import os, json, base64
 from ruamel.yaml import YAML
 p = "/sandbox/.hermes/config.yaml"
 yaml = YAML()
@@ -91,13 +94,18 @@ try:
         cfg = yaml.load(f) or {}
 except Exception:
     cfg = {}
-entry = {"url": os.environ["MURL"], "enabled": True}
+entry = {"url": os.environ["MURL"], "enabled": True, "connect_timeout": 120, "timeout": 120}
+headers = {}
 if os.environ.get("MHEADER"):
     # Header value is the placeholder; the provider holds the full real value.
-    entry["headers"] = {os.environ["MHEADER"]: "${" + os.environ["MSECRET_ENV"] + "}"}
-else:
-    entry["connect_timeout"] = 120
-    entry["timeout"] = 120
+    headers[os.environ["MHEADER"]] = "${" + os.environ["MSECRET_ENV"] + "}"
+if os.environ.get("MEXTRA_B64"):
+    try:
+        headers.update(json.loads(base64.b64decode(os.environ["MEXTRA_B64"])))
+    except Exception:
+        pass
+if headers:
+    entry["headers"] = headers
 cfg.setdefault("mcp_servers", {})[os.environ["MNAME"]] = entry
 with open(p, "w") as f:
     yaml.dump(cfg, f)
@@ -124,13 +132,19 @@ PY
     printf '{'
     first=1
     for f in $(records); do
-      IFS='|' read -r NAME URL HOST HEADER SECRET_ENV PROVIDER < <(record_fields "$f")
+      IFS='|' read -r NAME URL HOST HEADER SECRET_ENV PROVIDER EXTRA_HEADERS_B64 < <(record_fields "$f")
       [ -z "$NAME" ] && continue
       [ $first -eq 0 ] && printf ','; first=0
-      if [ -n "$HEADER" ]; then
-        printf '%s:{"url":%s,"headers":{%s:%s},"enabled":true}' \
-          "$(jq -nc --arg v "$NAME" '$v')" "$(jq -nc --arg v "$URL" '$v')" \
-          "$(jq -nc --arg v "$HEADER" '$v')" "$(jq -nc --arg v "\${$SECRET_ENV}" '$v')"
+      # Non-secret extra headers (e.g. GHL locationId), decoded from base64 JSON.
+      extra='{}'
+      [ -n "$EXTRA_HEADERS_B64" ] && extra="$(printf '%s' "$EXTRA_HEADERS_B64" | base64 -d 2>/dev/null || echo '{}')"
+      if [ -n "$HEADER" ] || [ "$extra" != "{}" ]; then
+        # header-auth and/or static headers: secret header (placeholder) + extra headers.
+        sec='{}'
+        [ -n "$HEADER" ] && sec="$(jq -nc --arg h "$HEADER" --arg v "\${$SECRET_ENV}" '{($h):$v}')"
+        printf '%s:%s' "$(jq -nc --arg v "$NAME" '$v')" \
+          "$(jq -nc --arg url "$URL" --argjson sec "$sec" --argjson extra "$extra" \
+            '{url:$url, headers:($sec+$extra), connect_timeout:120, timeout:120, enabled:true}')"
       else
         printf '%s:{"url":%s,"connect_timeout":120,"timeout":120,"enabled":true}' \
           "$(jq -nc --arg v "$NAME" '$v')" "$(jq -nc --arg v "$URL" '$v')"
@@ -141,7 +155,7 @@ PY
 
   list)
     for f in $(records); do
-      IFS='|' read -r NAME URL HOST HEADER SECRET_ENV PROVIDER < <(record_fields "$f")
+      IFS='|' read -r NAME URL HOST HEADER SECRET_ENV PROVIDER EXTRA_HEADERS_B64 < <(record_fields "$f")
       echo "mcp: $NAME  host=$HOST${HEADER:+  header=$HEADER}  provider=$PROVIDER  (secret host-side)"
     done
     ;;
@@ -155,7 +169,7 @@ PY
     [ -z "$RNAME" ] && { echo "usage: $0 remove <name> [<sandbox>]" >&2; exit 2; }
     RPROVIDER=""
     if [ -f "$RECORD_DIR/${RNAME}.conf" ]; then
-      IFS='|' read -r _n _u _h _hd _se RPROVIDER < <(record_fields "$RECORD_DIR/${RNAME}.conf")
+      IFS='|' read -r _n _u _h _hd _se RPROVIDER _eh < <(record_fields "$RECORD_DIR/${RNAME}.conf")
     fi
     rm -f "$RECORD_DIR/${RNAME}.conf"
     echo "[mcp-sync] removed record: $RNAME"

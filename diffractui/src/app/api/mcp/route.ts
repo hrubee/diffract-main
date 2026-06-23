@@ -114,7 +114,14 @@ export async function POST(req: Request): Promise<Response> {
   const unauth = await requireSession();
   if (unauth) return unauth;
 
-  let body: { sandbox?: string; name?: string; url?: string; authHeader?: string; apiKey?: string };
+  let body: {
+    sandbox?: string;
+    name?: string;
+    url?: string;
+    authHeader?: string;
+    apiKey?: string;
+    extraHeaders?: Record<string, unknown>;
+  };
   try {
     body = await req.json();
   } catch {
@@ -125,6 +132,26 @@ export async function POST(req: Request): Promise<Response> {
   const url = (body.url || "").trim();
   const authHeader = (body.authHeader || "").trim();
   const apiKey = (body.apiKey || "").trim();
+
+  // Optional NON-SECRET extra headers (e.g. GoHighLevel's `locationId`). These are
+  // identifiers, not secrets, so they go verbatim into the agent config (no provider).
+  // Validate strictly to prevent header/config injection.
+  const extraHeaders: Record<string, string> = {};
+  if (body.extraHeaders && typeof body.extraHeaders === "object") {
+    const HNAME_RE = /^[A-Za-z0-9!#$%&'*+.^_`|~-]+$/;
+    for (const [k, v] of Object.entries(body.extraHeaders)) {
+      const hn = String(k).trim();
+      const hv = String(v ?? "").trim();
+      if (!hn && !hv) continue;
+      if (!HNAME_RE.test(hn)) {
+        return Response.json({ error: `Invalid header name: "${hn}"` }, { status: 400 });
+      }
+      if (!hv || /[\r\n]/.test(hv) || hv.length > 1024) {
+        return Response.json({ error: `Invalid value for header "${hn}"` }, { status: 400 });
+      }
+      extraHeaders[hn] = hv;
+    }
+  }
 
   // Fall back to the default sandbox when the caller didn't pass one.
   if (!sandbox) sandbox = await defaultSandbox();
@@ -196,6 +223,9 @@ export async function POST(req: Request): Promise<Response> {
     ...process.env,
     PATH: `${process.env.PATH || ""}:${path.dirname(process.execPath)}:/usr/local/bin`,
     [secretEnv]: secretValue,
+    ...(Object.keys(extraHeaders).length
+      ? { DIFFRACT_MCP_EXTRA_HEADERS: JSON.stringify(extraHeaders) }
+      : {}),
   };
 
   try {
