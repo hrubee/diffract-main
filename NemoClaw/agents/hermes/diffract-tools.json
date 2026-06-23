@@ -1,43 +1,4 @@
 {
   "$comment": "Diffract universal tool registry. Each entry defines a third-party CLI the agent can use, across four layers. INSTALL fields (repo/ref/kind/patch/build/entry/bin) are consumed at image-build time by install-diffract-tools.sh to bake the tool into /sandbox/.diffract-tools/<name> and put <bin> on the agent PATH. CONNECT fields (secretEnv/configEnv/apiHosts/binaries/authHeader) are consumed at runtime by diffract-tool-connect.sh to wire the tool's credentials securely (OpenShell generic provider -> placeholder in sandbox -> real secret injected at egress; egress allowlisted to apiHosts, attributed to binaries). ADVERTISE fields (the optional 'skill' object: name/title/summary/tags/examples) are consumed at image-build time by advertise-diffract-tools.sh to emit a hermes SKILL.md under /sandbox/.hermes/skills/diffract-tools/<name>, so the agent DISCOVERS the tool in its skill catalog and knows it is pre-authenticated (install/connect make a tool runnable; advertise makes the agent aware of it). 'patch' is an optional shell command run after clone and before build, in the tool dir — use it for proxy-compat fixups (the sandbox routes egress through an MITM proxy; node tools must use undici/fetch, so an axios tool needs adapter:'fetch'). Add a tool = add an entry here; no Dockerfile edit.",
-  "tools": [
-    {
-      "name": "ghl",
-      "description": "GoHighLevel CRM CLI",
-      "repo": "https://github.com/hrubee/GHL-CLI.git",
-      "ref": "main",
-      "kind": "node",
-      "patch": "sed -i 's/axios.create({/axios.create({ adapter: \"fetch\",/' src/client.ts && sed -i 's/params\\.q = opts\\.query/params.query = opts.query/' src/commands/*.ts",
-      "build": "npm ci --no-audit --no-fund && npm run build",
-      "entry": "dist/index.js",
-      "bin": "ghl",
-      "secretEnv": "GHL_PRIVATE_TOKEN",
-      "configEnv": {
-        "GHL_LOCATION_ID": ""
-      },
-      "apiHosts": [
-        "services.leadconnectorhq.com:443"
-      ],
-      "binaries": [
-        "/usr/local/bin/node"
-      ],
-      "authHeader": "Authorization: Bearer",
-      "skill": {
-        "name": "ghl-crm",
-        "title": "GoHighLevel CRM",
-        "summary": "List, search, AND message GoHighLevel CRM data — contacts, opportunities, conversations, calendars, invoices — via the pre-authenticated ghl CLI. You CAN send and reply to messages (SMS, WhatsApp, email) on the user's behalf.",
-        "tags": ["CRM", "GoHighLevel", "Contacts", "Messaging", "WhatsApp", "SMS", "Sales"],
-        "examples": [
-          "ghl contacts list -q \"<email-or-phone>\"   # search; returns the contact id",
-          "ghl contacts get <contactId>",
-          "ghl conversations send --contact <contactId> --message \"<text>\" --type whatsapp",
-          "ghl conversations send --contact <contactId> --message \"<text>\" --type sms",
-          "ghl conversations reply <conversationId> --message \"<text>\" --type whatsapp",
-          "ghl conversations list   # then: ghl conversations messages <conversationId>",
-          "ghl opportunities list",
-          "ghl calendar events list"
-        ]
-      }
-    }
-  ]
+  "tools": []
 }
