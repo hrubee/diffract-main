@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+# fb — Facebook/Instagram Graph API helper for the Diffract agent.
+#
+# The Page access token is injected into the environment ($FACEBOOK_PAGE_TOKEN, an
+# opaque placeholder substituted at egress) and is used INTERNALLY here — the agent
+# never sees, types, or handles it. The agent passes ONLY plain arguments: no token,
+# no curl, no Authorization header, no '?' or '&'. This removes every shell-quoting
+# trap that an LLM tends to get wrong.
+#
+#   fb me                                   # GET /me
+#   fb me id,name                           # GET /me?fields=id,name
+#   fb me/feed id,message,created_time limit=5
+#   fb 123_456/comments id,message,from     # comments on a post
+#   fb reply 123_456 Thanks so much for reaching out!   # reply to a Facebook comment
+#   fb igreply 178_999 Appreciate your comment!         # reply to an Instagram comment
+#
+# Read:   fb <node>[/edge] [fields,csv] [param=value ...]
+# Reply:  fb reply <id> <message words...>   |   fb igreply <id> <message words...>
+set -euo pipefail
+
+GV="${FB_GRAPH_VERSION:-v21.0}"
+BASE="https://graph.facebook.com/${GV}"
+
+if [ -z "${FACEBOOK_PAGE_TOKEN:-}" ]; then
+  echo "fb: the Facebook tool is not connected to this sandbox (no credential)." >&2
+  exit 1
+fi
+AUTH=(-H "Authorization: Bearer ${FACEBOOK_PAGE_TOKEN}")
+
+cmd="${1:-}"
+case "$cmd" in
+  reply|igreply)
+    id="${2:-}"
+    if [ -n "$id" ]; then shift 2; else shift "$#"; fi
+    msg="$*"
+    if [ -z "$id" ] || [ -z "$msg" ]; then
+      echo "usage: fb $cmd <id> <message words...>" >&2; exit 2
+    fi
+    edge="comments"; [ "$cmd" = "igreply" ] && edge="replies"
+    exec curl -sS "${AUTH[@]}" -X POST --data-urlencode "message=${msg}" "${BASE}/${id}/${edge}"
+    ;;
+  "" | -h | --help | help)
+    echo "usage: fb <node>[/edge] [fields,csv] [param=value ...]" >&2
+    echo "       fb reply <id> <message...>     # reply to a Facebook comment" >&2
+    echo "       fb igreply <id> <message...>   # reply to an Instagram comment" >&2
+    [ -z "$cmd" ] && exit 2 || exit 0
+    ;;
+esac
+
+# Read path: first arg is the node/edge, optional CSV fields, optional key=value params.
+node="$cmd"; shift || true
+q=""
+if [ "$#" -gt 0 ] && [ "${1#*=}" = "$1" ]; then q="fields=$1"; shift || true; fi
+for kv in "$@"; do
+  case "$kv" in *=*) q="${q:+$q&}$kv" ;; esac
+done
+url="${BASE}/${node}"
+[ -n "$q" ] && url="${url}?${q}"
+exec curl -sS "${AUTH[@]}" "$url"
