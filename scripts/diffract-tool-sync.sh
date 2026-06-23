@@ -91,12 +91,17 @@ case "$MODE" in
     rc=0
     for t in $(connected_tools); do
       binargs=(); while IFS= read -r b; do [ -n "$b" ] && binargs+=(--binary "$b"); done < <(tool_binaries "$t")
+      # The chat daemon's egress is cross-netns, so the proxy can't trace it to a
+      # binary and attributes it as `-`; allow it or the tool won't work in chat.
+      binargs+=(--binary "-")
       while IFS= read -r h; do
         [ -z "$h" ] && continue
-        # registry host is "host:port"; OpenShell endpoint wants "host:port:access".
-        # Use the same --rule-name as diffract-tool-connect.sh ("<tool>-api") so a
-        # re-run UPDATES that rule instead of appending a duplicate policy entry.
-        if "$OPENSHELL" policy update "$SANDBOX" --add-endpoint "${h}:full" --rule-name "${t}-api" "${binargs[@]}" --wait >/dev/null 2>&1; then
+        # registry host is "host:port"; OpenShell endpoint wants "host:port:access:protocol".
+        # `:rest` makes the proxy TLS-terminate so it can SUBSTITUTE the credential
+        # placeholder at egress (a `:full` tunnel can't, so the opaque token would leak
+        # and cross-netns CONNECTs get denied). Same --rule-name as diffract-tool-connect.sh
+        # ("<tool>-api") so a re-run UPDATES that rule instead of appending a duplicate.
+        if "$OPENSHELL" policy update "$SANDBOX" --add-endpoint "${h}:full:rest" --rule-name "${t}-api" "${binargs[@]}" --wait >/dev/null 2>&1; then
           echo "[tool-sync] egress allowed: $t -> $h"
         else
           echo "[tool-sync] WARN: failed to apply egress for $t -> $h"

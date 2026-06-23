@@ -111,11 +111,18 @@ for host in "${API_HOSTS[@]:-}"; do
   [ -z "$host" ] && continue
   bin_args=()
   for b in "${BINARIES[@]:-}"; do [ -n "$b" ] && bin_args+=(--binary "$b"); done
+  # The chat daemon's egress is cross-netns: the proxy can't trace it to a binary
+  # and attributes it as `-`. Allow `-` or the tool works only in exec sessions,
+  # not in chat (the whole point). Mirrors the MCP connector.
+  bin_args+=(--binary "-")
+  # `:full:rest` (not `:full`): the proxy must TLS-terminate to SUBSTITUTE the
+  # ${SECRET_ENV} placeholder at egress — a raw `:full` tunnel can't, so the opaque
+  # token would be sent verbatim AND cross-netns CONNECTs are denied (403).
   openshell policy update "$SANDBOX" \
-    --add-endpoint "${host}:full" \
+    --add-endpoint "${host}:full:rest" \
     --rule-name "${TOOL}-api" \
     "${bin_args[@]}" --wait >/dev/null
-  echo "[connect]   allowed ${host} (binaries: ${BINARIES[*]:-any})"
+  echo "[connect]   allowed ${host} (rest; binaries: ${BINARIES[*]:-any} + cross-netns -)"
 done
 
 # Record this tool as connected (gateway-independent), so the next deploy attaches
