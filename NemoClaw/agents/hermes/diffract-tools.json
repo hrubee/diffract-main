@@ -13,7 +13,7 @@
       "skill": {
         "name": "facebook",
         "title": "Facebook & Instagram",
-        "summary": "Read and reply to Facebook Page and Instagram comments, including comments on live ads. Pre-authenticated. Use the `fb` command with plain arguments — never curl, never a token, never a URL.",
+        "summary": "Read and reply to Facebook Page and Instagram comments (incl. live ads), AND pull Instagram reel/post data + metrics (views, reach, engagement). This is THE tool for Facebook/Instagram data — do not use any other social-media tool. Pre-authenticated; use the `fb` command with plain arguments — never curl, never a token, never a URL.",
         "tags": ["facebook", "instagram", "comments", "ads", "social"],
         "examples": [
           "# Use the `fb` command. It is already authenticated — do NOT write curl, do NOT use a token,",
@@ -29,8 +29,11 @@
           "# Reply to a Facebook comment (id, then the message — spaces are fine, no quotes needed):",
           "fb reply COMMENT_ID Thanks so much for reaching out!",
           "",
-          "# Instagram media (use the instagram_business_account id from the first command):",
-          "fb IG_USER_ID/media id,caption,comments_count limit=10",
+          "# Instagram media / reels (use the instagram_business_account id from the first command):",
+          "fb IG_USER_ID/media id,media_type,caption,permalink,timestamp,comments_count limit=10",
+          "# Metrics for ONE reel/post (views, reach, engagement) — use this for analytics, NOT any",
+          "# other tool. If a metric name errors, drop it from the list and retry:",
+          "fb REEL_ID/insights metric=reach,likes,comments,saved,shares,views",
           "# Comments on an Instagram post, then reply to one:",
           "fb IG_MEDIA_ID/comments id,text,username",
           "fb igreply IG_COMMENT_ID Appreciate your comment!",
