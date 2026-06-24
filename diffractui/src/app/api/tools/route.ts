@@ -33,6 +33,10 @@ const TOOL_NAME_RE = /^[a-z][a-z0-9-]{0,40}$/;
 // (e.g. API_KEY, api_key, x-api-key). Injection-safe; values are read via
 // printenv downstream so hyphenated/lowercase names work end-to-end.
 const KEY_RE = /^[A-Za-z][A-Za-z0-9_-]*$/;
+// Connectors that ship with Diffract and are managed by a dedicated dashboard
+// flow (their own card). They must never be deleted via the generic tools API,
+// which would strip their registry entry + bin + skill and break reconnect.
+const BUILTIN_TOOLS = new Set(["facebook"]);
 
 type RegistryTool = {
   name: string;
@@ -305,6 +309,17 @@ export async function DELETE(req: Request): Promise<Response> {
   }
   if (!TOOL_NAME_RE.test(toolName)) {
     return Response.json({ error: "Invalid tool name" }, { status: 400 });
+  }
+  // Built-in connectors (managed by their own dashboard flow) must NOT be
+  // deletable here: this handler strips the registry entry AND removes the
+  // tool's bin (e.g. /usr/local/bin/fb) + skill, which breaks the connector and
+  // any future reconnect. Facebook/Instagram is disconnected via /api/facebook
+  // (DELETE), which removes only the token and leaves the registry entry intact.
+  if (BUILTIN_TOOLS.has(toolName)) {
+    return Response.json(
+      { error: `'${toolName}' is a built-in connector — disconnect it from its own card, not here.` },
+      { status: 400 },
+    );
   }
 
   const p = await registryPath();

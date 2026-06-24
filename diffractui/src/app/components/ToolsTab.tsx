@@ -871,13 +871,16 @@ export default function ToolsTab({
 
       {loading && tools.length === 0 ? (
         <div className="text-nc-text-muted text-xs">Loading…</div>
-      ) : tools.length === 0 ? (
+      ) : tools.filter((t) => t.name !== "facebook").length === 0 ? (
         mcpServers.length === 0 ? (
           <div className="text-nc-text-muted text-xs">No tools or MCP servers yet — add one above.</div>
         ) : null
       ) : (
         <div className="space-y-3">
-          {tools.map((t) => (
+          {/* Facebook/Instagram is a built-in connector shown in its own card above —
+              exclude it here so it can't be removed via the generic Remove (which
+              deletes the registry entry + fb helper + skill). */}
+          {tools.filter((t) => t.name !== "facebook").map((t) => (
             <div key={t.name} className="rounded border border-nc-border bg-nc-bg">
               <div className="flex items-start justify-between gap-3 p-3">
                 <div className="min-w-0">
