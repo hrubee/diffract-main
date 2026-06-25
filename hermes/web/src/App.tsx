@@ -139,7 +139,6 @@ const BUILTIN_NAV_REST: NavItem[] = [
   },
   { path: "/cron", labelKey: "cron", label: "Cron", icon: Clock },
   { path: "/skills", labelKey: "skills", label: "Skills", icon: Package },
-  { path: "/plugins", labelKey: "plugins", label: "Plugins", icon: Puzzle },
   { path: "/profiles", labelKey: "profiles", label: "Profiles", icon: Users },
 ];
 
