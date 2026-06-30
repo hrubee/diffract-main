@@ -61,10 +61,17 @@ while IFS=$'\t' read -r name listen web gw running; do
     else
         bad "web NOT reachable on 127.0.0.1:$web (in-container dashboard or socat hop down?)"
     fi
-    # Public per-sandbox origin (through Caddy). -k: the per-port cert may be the
-    # domain cert; in IP mode it's plain HTTP.
-    if [ -n "$domain" ]; then url="https://127.0.0.1:$listen/"; else url="http://127.0.0.1:$listen/"; fi
-    if curl -skf --max-time 8 -o /dev/null "$url"; then
+    # Public per-sandbox origin (through Caddy). In domain mode the Caddy site is
+    # labelled "<domain>:<port>", so it only answers for that Host — probe the
+    # domain URL but pin it to loopback with --resolve (no external DNS round-trip);
+    # in IP mode it's a bare ":<port>" plain-HTTP site. -k: self/again cert tolerated.
+    probe=()
+    if [ -n "$domain" ]; then
+        url="https://$domain:$listen/"; probe=(--resolve "$domain:$listen:127.0.0.1")
+    else
+        url="http://127.0.0.1:$listen/"
+    fi
+    if curl -skf --max-time 8 "${probe[@]}" -o /dev/null "$url"; then
         ok "public origin serves: $url"
     else
         bad "public origin NOT serving: $url (Caddy site / reload issue?)"
