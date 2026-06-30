@@ -899,6 +899,18 @@ EOF
             }
         }
 
+        # The SPA is prefix-aware: under the /agent base path it posts chat to
+        # /agent/v1/* (ChatPage uses HERMES_BASE_PATH). Route that to the gateway
+        # too (strip the prefix first), mirroring the root /v1/* handler above.
+        handle /agent/v1/* {
+            uri strip_prefix /agent
+            reverse_proxy 127.0.0.1:8642 {
+                header_up Host {upstream_hostport}
+                header_up -Origin
+                header_up -Referer
+            }
+        }
+
         handle_path /agent/* {
             reverse_proxy 127.0.0.1:9119 {
                 header_up Host {upstream_hostport}
@@ -929,6 +941,18 @@ EOF
                 # Strip them here so the chat works; Caddy (a trusted reverse proxy)
                 # vouches for the request, and cross-origin reads are still blocked by
                 # the browser's CORS (the gateway sends no Access-Control-Allow-Origin).
+                header_up -Origin
+                header_up -Referer
+            }
+        }
+
+        # The SPA is prefix-aware: under the /agent base path it posts chat to
+        # /agent/v1/* (ChatPage uses HERMES_BASE_PATH). Route that to the gateway
+        # too (strip the prefix first), mirroring the root /v1/* handler above.
+        handle /agent/v1/* {
+            uri strip_prefix /agent
+            reverse_proxy 127.0.0.1:8642 {
+                header_up Host {upstream_hostport}
                 header_up -Origin
                 header_up -Referer
             }
