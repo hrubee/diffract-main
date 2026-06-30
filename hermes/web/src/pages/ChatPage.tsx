@@ -68,7 +68,11 @@ interface Conversation {
   updatedAt: number;
 }
 
-const STORE_KEY = "diffract.chat.v1";
+// Chat history is namespaced by the dashboard's base path so each sandbox keeps
+// its OWN history. All sandboxes are served from one origin (path-based:
+// /<name>/agent/), so a single shared key would leak one sandbox's conversations
+// into another via localStorage. HERMES_BASE_PATH is "" at the bare origin.
+const STORE_KEY = `diffract.chat.v1${HERMES_BASE_PATH ? `::${HERMES_BASE_PATH}` : ""}`;
 // The chat completions endpoint, served under this dashboard's base path so it
 // works when the app is mounted at a per-sandbox prefix (e.g. /<name>/agent) —
 // Caddy routes <prefix>/v1/* to THAT sandbox's gateway. HERMES_BASE_PATH is "" at
