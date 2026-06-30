@@ -19,9 +19,9 @@ interface SandboxRow {
   connected: boolean;
   activeSessionCount: number | null;
   isDefault: boolean;
-  // Per-sandbox chat port (Phase 2). Null until the fleet reconciler is serving
-  // this sandbox on its own origin; the "Open chat" link is hidden while null.
-  listenPort: number | null;
+  // True once the fleet is serving this sandbox under /<name>/agent/; the
+  // "Open chat" link is hidden until then.
+  chatReady: boolean;
 }
 
 export default function Home() {
@@ -94,10 +94,10 @@ export default function Home() {
     loadSandboxes().then((rows) => setState(rows.length > 0 ? "list" : "setup"));
   }
 
-  // Open a sandbox's dedicated chat origin (its own host port) in a new tab. The
-  // per-sandbox gateway token is fetched on demand and embedded so the chat UI
-  // authenticates without a second prompt.
-  async function openChat(name: string, listenPort: number) {
+  // Open a sandbox's dedicated chat at /<name>/agent/ (path-based, same origin) in
+  // a new tab. The per-sandbox gateway token is fetched on demand and embedded so
+  // the chat UI authenticates without a second prompt.
+  async function openChat(name: string) {
     let token = "";
     try {
       const r = await fetch(`/api/gateway-token?sandbox=${encodeURIComponent(name)}`);
@@ -105,7 +105,7 @@ export default function Home() {
     } catch {
       /* no token — open anyway; the chat UI will prompt */
     }
-    const base = `${window.location.protocol}//${window.location.hostname}:${listenPort}/`;
+    const base = `${window.location.origin}/${encodeURIComponent(name)}/agent/`;
     const url = token ? `${base}?password=${token}#token=${token}` : base;
     window.open(url, "_blank", "noopener");
   }
@@ -170,9 +170,9 @@ export default function Home() {
                   >
                     Manage
                   </button>
-                  {s.listenPort != null && (
+                  {s.chatReady && (
                     <button
-                      onClick={() => openChat(s.name, s.listenPort as number)}
+                      onClick={() => openChat(s.name)}
                       className="px-3 py-1.5 rounded-md text-xs font-medium bg-nc-green text-black hover:bg-nc-green-dark transition-all"
                     >
                       Open chat ↗
@@ -204,7 +204,7 @@ export default function Home() {
       {state === "dashboard" && (
         <Dashboard
           sandboxName={selected}
-          listenPort={sandboxes.find((s) => s.name === selected)?.listenPort ?? null}
+          chatReady={sandboxes.find((s) => s.name === selected)?.chatReady ?? false}
           onBack={goToList}
           onDestroyed={goToList}
         />

@@ -37,6 +37,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Markdown } from "@/components/Markdown";
+import { HERMES_BASE_PATH } from "@/lib/api";
 import { GatewayClient } from "@/lib/gatewayClient";
 import { executeSlash } from "@/lib/slashExec";
 import { cn } from "@/lib/utils";
@@ -68,9 +69,11 @@ interface Conversation {
 }
 
 const STORE_KEY = "diffract.chat.v1";
-// Caddy routes origin /v1/* -> the sandbox gateway (:8642). Leading slash keeps
-// it at the origin root (NOT under the dashboard's /agent base path).
-const CHAT_COMPLETIONS_URL = "/v1/chat/completions";
+// The chat completions endpoint, served under this dashboard's base path so it
+// works when the app is mounted at a per-sandbox prefix (e.g. /<name>/agent) —
+// Caddy routes <prefix>/v1/* to THAT sandbox's gateway. HERMES_BASE_PATH is "" at
+// the origin root, so this stays /v1/chat/completions in the single-sandbox case.
+const CHAT_COMPLETIONS_URL = `${HERMES_BASE_PATH}/v1/chat/completions`;
 const MODEL = "hermes-agent";
 const GREETING =
   "Hi, I'm Diffract Agent — running safely for your business. How can I help?";

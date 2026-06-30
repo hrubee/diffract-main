@@ -10,14 +10,13 @@ interface Props {
   // Return to the multi-sandbox list view. Optional so the component still works
   // standalone (e.g. a single-sandbox deployment with no list).
   onBack?: () => void;
-  // This sandbox's dedicated chat port (from the fleet). When set, the Web
-  // Dashboard link points at the sandbox's OWN origin (https://<host>:<port>/)
-  // instead of the shared legacy /agent path (which always serves the default
-  // sandbox). Null/undefined -> fall back to /agent.
-  listenPort?: number | null;
+  // True once the fleet serves this sandbox at /<name>/agent/. When set, the Web
+  // Dashboard link points at the sandbox's OWN path (/<name>/agent/) instead of
+  // the shared legacy /agent (which always serves the default sandbox).
+  chatReady?: boolean;
 }
 
-export default function Dashboard({ sandboxName, onDestroyed, onBack, listenPort }: Props) {
+export default function Dashboard({ sandboxName, onDestroyed, onBack, chatReady }: Props) {
   const [activeTab, setActiveTab] = useState<"status" | "files" | "tools" | "logs" | "policies" | "rules">("status");
   const [status, setStatus] = useState<Record<string, string>>({});
   const [logs, setLogs] = useState<string[]>([]);
@@ -204,13 +203,13 @@ export default function Dashboard({ sandboxName, onDestroyed, onBack, listenPort
       });
   }
 
-  // Prefer this sandbox's OWN origin (its dedicated fleet port) so the link opens
-  // THIS sandbox's chat, not the default sandbox's legacy /agent. Fall back to
-  // /agent when the fleet isn't serving this sandbox yet (listenPort null).
+  // Prefer this sandbox's OWN path (/<name>/agent) so the link opens THIS
+  // sandbox's chat, not the default sandbox's legacy /agent. Fall back to /agent
+  // when the fleet isn't serving this sandbox yet.
   const dashboardUrl =
     typeof window !== "undefined"
-      ? listenPort != null
-        ? `${window.location.protocol}//${window.location.hostname}:${listenPort}`
+      ? chatReady
+        ? `${window.location.origin}/${encodeURIComponent(sandboxName)}/agent`
         : `${window.location.origin}/agent`
       : "/agent";
   const dashboardUrlWithToken = gatewayToken

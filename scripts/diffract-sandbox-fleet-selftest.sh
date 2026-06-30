@@ -42,9 +42,9 @@ count=$(jq 'length' "$REGISTRY" 2>/dev/null || echo 0)
 info "  $count sandbox(es) in registry; domain='${domain:-<none/IP>}'"
 
 # Per-sandbox probes.
-while IFS=$'\t' read -r name listen web gw running; do
+while IFS=$'\t' read -r name web gw running; do
     [ -z "$name" ] && continue
-    info "== sandbox: $name (listen=$listen web=$web gw=$gw running=$running) =="
+    info "== sandbox: $name (web=$web gw=$gw running=$running) =="
     if [ "$running" != "true" ]; then
         info "  (not marked running — skipping live probes)"
         continue
@@ -61,22 +61,20 @@ while IFS=$'\t' read -r name listen web gw running; do
     else
         bad "web NOT reachable on 127.0.0.1:$web (in-container dashboard or socat hop down?)"
     fi
-    # Public per-sandbox origin (through Caddy). In domain mode the Caddy site is
-    # labelled "<domain>:<port>", so it only answers for that Host — probe the
-    # domain URL but pin it to loopback with --resolve (no external DNS round-trip);
-    # in IP mode it's a bare ":<port>" plain-HTTP site. -k: self/again cert tolerated.
-    probe=()
+    # Public path route through Caddy: https://<domain>/<name>/agent/ (pinned to
+    # loopback via --resolve so no external DNS round-trip). In IP/no-domain mode
+    # there is no cert, so probe plain HTTP on 127.0.0.1.
     if [ -n "$domain" ]; then
-        url="https://$domain:$listen/"; probe=(--resolve "$domain:$listen:127.0.0.1")
+        url="https://$domain/$name/agent/"; probe=(--resolve "$domain:443:127.0.0.1")
     else
-        url="http://127.0.0.1:$listen/"
+        url="http://127.0.0.1/$name/agent/"; probe=()
     fi
     if curl -skf --max-time 8 "${probe[@]}" -o /dev/null "$url"; then
-        ok "public origin serves: $url"
+        ok "public path serves: $url"
     else
-        bad "public origin NOT serving: $url (Caddy site / reload issue?)"
+        bad "public path NOT serving: $url (Caddy import / reload issue?)"
     fi
-done < <(jq -r 'to_entries[] | [.key, .value.listen, .value.web, .value.gw, (.value.running // false)] | @tsv' "$REGISTRY" 2>/dev/null)
+done < <(jq -r 'to_entries[] | [.key, .value.web, .value.gw, (.value.running // false)] | @tsv' "$REGISTRY" 2>/dev/null)
 
 echo
 if [ "$fail" = "0" ]; then echo "RESULT: PASS"; else echo "RESULT: FAIL"; fi

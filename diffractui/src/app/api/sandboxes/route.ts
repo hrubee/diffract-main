@@ -3,12 +3,13 @@ import { execFileSync } from "child_process";
 import { readFileSync } from "fs";
 
 const DIFFRACT = process.env.DIFFRACT_PATH || "nemoclaw";
-// Port registry written by diffract-sandbox-fleet.sh (Phase 2). Maps each sandbox
-// to its allocated { listen, web, gw } host ports. Absent until the fleet runs —
-// then `listenPort` is null and the UI simply omits the per-sandbox "Open chat" link.
+// Port registry written by diffract-sandbox-fleet.sh (Phase 2). The fleet serves
+// each sandbox under the path /<name>/agent/ on the existing origin; `running:true`
+// means its routes + forwards are live, so the UI can link to its chat. Absent
+// until the fleet runs — then chatReady is false and the UI omits the chat link.
 const PORT_REGISTRY = process.env.DIFFRACT_PORT_REGISTRY || "/var/lib/diffract/sandbox-ports.json";
 
-function readPortRegistry(): Record<string, { listen?: number; running?: boolean }> {
+function readPortRegistry(): Record<string, { running?: boolean }> {
   try {
     return JSON.parse(readFileSync(PORT_REGISTRY, "utf8"));
   } catch {
@@ -46,9 +47,9 @@ export async function GET() {
 
     const sandboxes = rows.map((r) => {
       const p = ports[r.name];
-      // Only expose a chat port once the fleet has it actively forwarded (running),
-      // so the UI never links to a port that isn't serving yet.
-      const listenPort = p?.running && typeof p.listen === "number" ? p.listen : null;
+      // chatReady once the fleet is actively serving this sandbox (running), so the
+      // UI only links to /<name>/agent/ when it will actually resolve.
+      const chatReady = p?.running === true;
       return {
         name: r.name,
         model: r.model ?? null,
@@ -58,7 +59,7 @@ export async function GET() {
         connected: Boolean(r.connected),
         activeSessionCount: r.activeSessionCount ?? null,
         isDefault: r.isDefault ?? r.name === defaultSandbox,
-        listenPort,
+        chatReady,
       };
     });
 
