@@ -32,9 +32,12 @@ const SANDBOX_NAME_MAX = 63;
 
 interface Props {
   onDeploy: (config: Record<string, string>) => void;
+  // When creating an additional sandbox (not first-run), lets the operator return
+  // to the sandbox list without deploying. Omitted on first run (no list to go back to).
+  onCancel?: () => void;
 }
 
-export default function SetupForm({ onDeploy }: Props) {
+export default function SetupForm({ onDeploy, onCancel }: Props) {
   const [provider, setProvider] = useState("nvidia");
   const [apiKey, setApiKey] = useState("");
   const [model, setModel] = useState(PROVIDERS[0].models[0] || "");
@@ -336,6 +339,16 @@ export default function SetupForm({ onDeploy }: Props) {
         >
           Deploy
         </button>
+
+        {onCancel && (
+          <button
+            type="button"
+            onClick={onCancel}
+            className="w-full py-2 text-sm text-nc-text-muted hover:text-nc-text transition-all"
+          >
+            Cancel
+          </button>
+        )}
       </form>
     </div>
   );

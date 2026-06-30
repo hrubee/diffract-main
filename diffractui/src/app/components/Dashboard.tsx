@@ -7,9 +7,12 @@ import ToolsTab from "./ToolsTab";
 interface Props {
   sandboxName: string;
   onDestroyed: () => void;
+  // Return to the multi-sandbox list view. Optional so the component still works
+  // standalone (e.g. a single-sandbox deployment with no list).
+  onBack?: () => void;
 }
 
-export default function Dashboard({ sandboxName, onDestroyed }: Props) {
+export default function Dashboard({ sandboxName, onDestroyed, onBack }: Props) {
   const [activeTab, setActiveTab] = useState<"status" | "files" | "tools" | "logs" | "policies" | "rules">("status");
   const [status, setStatus] = useState<Record<string, string>>({});
   const [logs, setLogs] = useState<string[]>([]);
@@ -295,6 +298,14 @@ export default function Dashboard({ sandboxName, onDestroyed }: Props) {
       {/* Header */}
       <div className="flex items-center justify-between mb-8">
         <div>
+          {onBack && (
+            <button
+              onClick={onBack}
+              className="text-xs text-nc-text-muted hover:text-nc-text transition-all mb-1"
+            >
+              ← All sandboxes
+            </button>
+          )}
           <h1 className="text-2xl font-semibold tracking-tight">Diffract</h1>
           <p className="text-nc-text-muted text-sm mt-0.5">
             Sandbox: <span className="text-nc-text font-mono">{sandboxName}</span>
