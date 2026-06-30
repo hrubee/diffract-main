@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 import { spawn, execSync, exec, execFile } from "child_process";
 import { existsSync, readFileSync, writeFileSync, mkdirSync, chmodSync } from "fs";
 import { cookies } from "next/headers";
-import { SESSION_COOKIE, verifySessionToken } from "@/lib/auth";
+import { SESSION_COOKIE, getSession } from "@/lib/auth";
 
 const DIFFRACT = process.env.DIFFRACT_PATH || "nemoclaw";
 // Host helper that captures a sandbox's working files before destroy so they
@@ -66,12 +66,12 @@ function backupBeforeDestroy(sandbox: string): Promise<string | null> {
   });
 }
 
-// Defense-in-depth: re-verify the admin session inside the handler, not just
-// in proxy.ts (the Next docs warn a matcher change can silently drop coverage).
+// Creating / recreating / destroying sandboxes is an ADMIN operation (boxes are
+// provisioned by the operator, then assigned to users). Require an admin session.
 async function requireSession(): Promise<Response | null> {
-  const token = (await cookies()).get(SESSION_COOKIE)?.value;
-  if (await verifySessionToken(token)) return null;
-  return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const s = await getSession((await cookies()).get(SESSION_COOKIE)?.value);
+  if (s?.isAdmin) return null;
+  return Response.json({ error: "Admin only" }, { status: 403 });
 }
 
 export async function GET(request: Request) {

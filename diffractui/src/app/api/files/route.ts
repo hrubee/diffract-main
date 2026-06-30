@@ -1,3 +1,4 @@
+import { requireBoxAccess as __rba } from "@/lib/rbac";
 export const dynamic = "force-dynamic";
 
 import { execFile, spawn } from "child_process";
@@ -112,6 +113,7 @@ export async function GET(request: Request) {
 
   const { searchParams } = new URL(request.url);
   const sandbox = searchParams.get("sandbox") || "";
+  { const __d = await __rba(sandbox); if (__d) return __d; }
   const rawPath = searchParams.get("path") || ROOT;
   const isDownload = searchParams.get("download") === "1";
 
@@ -213,6 +215,7 @@ export async function POST(request: Request) {
 
   const { searchParams } = new URL(request.url);
   const sandbox = searchParams.get("sandbox") || "";
+  { const __d = await __rba(sandbox); if (__d) return __d; }
   const dir = safePath(searchParams.get("path") || ROOT);
   if (!dir) return Response.json({ error: "Invalid path" }, { status: 400 });
   if (isHermes(dir)) return Response.json({ error: "Cannot write to agent's private directory" }, { status: 403 });
@@ -265,6 +268,7 @@ export async function DELETE(request: Request) {
 
   const { searchParams } = new URL(request.url);
   const sandbox = searchParams.get("sandbox") || "";
+  { const __d = await __rba(sandbox); if (__d) return __d; }
   const target = safePath(searchParams.get("path"));
   if (!target) return Response.json({ error: "Invalid path" }, { status: 400 });
   if (target === ROOT) return Response.json({ error: "Cannot delete sandbox root" }, { status: 403 });

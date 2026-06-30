@@ -1,3 +1,4 @@
+import { requireBoxAccess as __rba } from "@/lib/rbac";
 export const dynamic = "force-dynamic";
 
 import { execFile } from "child_process";
@@ -152,6 +153,7 @@ export async function GET(req: Request): Promise<Response> {
 
   const { searchParams } = new URL(req.url);
   const sandbox = searchParams.get("sandbox") || "";
+  { const __d = await __rba(sandbox); if (__d) return __d; }
   if (!SANDBOX_NAME_RE.test(sandbox)) {
     return Response.json({ error: "Invalid sandbox name" }, { status: 400 });
   }
@@ -224,6 +226,7 @@ export async function POST(req: Request): Promise<Response> {
   }
 
   const sandbox = body.sandbox || "";
+  { const __d = await __rba(sandbox); if (__d) return __d; }
   const toolName = body.tool || "";
   const credentials = body.credentials || {};
 
@@ -303,6 +306,7 @@ export async function DELETE(req: Request): Promise<Response> {
 
   const { searchParams } = new URL(req.url);
   const sandbox = searchParams.get("sandbox") || "";
+  { const __d = await __rba(sandbox); if (__d) return __d; }
   const toolName = searchParams.get("tool") || "";
   if (!SANDBOX_NAME_RE.test(sandbox)) {
     return Response.json({ error: "Invalid sandbox name" }, { status: 400 });

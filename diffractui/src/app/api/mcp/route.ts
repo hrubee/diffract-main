@@ -1,3 +1,4 @@
+import { requireBoxAccess as __rba } from "@/lib/rbac";
 export const dynamic = "force-dynamic";
 
 import { execFile } from "child_process";
@@ -97,6 +98,7 @@ export async function GET(req: Request): Promise<Response> {
   // (e.g. the in-sandbox dashboard panel), matching POST/DELETE.
   let sandbox = (new URL(req.url).searchParams.get("sandbox") || "").trim();
   if (!sandbox) sandbox = await defaultSandbox();
+  { const __d = await __rba(sandbox); if (__d) return __d; }
   const scoped = SANDBOX_NAME_RE.test(sandbox) ? sandbox : "";
 
   // Providers actually attached to this sandbox (empty if none / sandbox gone).
@@ -187,6 +189,7 @@ export async function POST(req: Request): Promise<Response> {
 
   // Fall back to the default sandbox when the caller didn't pass one.
   if (!sandbox) sandbox = await defaultSandbox();
+  { const __d = await __rba(sandbox); if (__d) return __d; }
   if (!SANDBOX_NAME_RE.test(sandbox)) {
     return Response.json(
       { error: "No sandbox specified and no default sandbox found — deploy an agent first" },
@@ -306,6 +309,7 @@ export async function DELETE(req: Request): Promise<Response> {
     return Response.json({ error: "Invalid name (lowercase, a-z0-9-)" }, { status: 400 });
   }
   if (!sandbox) sandbox = await defaultSandbox();
+  { const __d = await __rba(sandbox); if (__d) return __d; }
   if (!SANDBOX_NAME_RE.test(sandbox)) {
     return Response.json(
       { error: "No sandbox specified and no default sandbox found" },

@@ -1,6 +1,7 @@
 export const dynamic = "force-dynamic";
 import { execFileSync } from "child_process";
 import { readFileSync } from "fs";
+import { accessibleBoxes } from "@/lib/rbac";
 
 const DIFFRACT = process.env.DIFFRACT_PATH || "nemoclaw";
 // Port registry written by diffract-sandbox-fleet.sh (Phase 2). The fleet serves
@@ -63,7 +64,11 @@ export async function GET() {
       };
     });
 
-    return Response.json({ defaultSandbox, sandboxes });
+    // RBAC: a non-admin user only sees the boxes assigned to them.
+    const access = await accessibleBoxes();
+    const visible = access?.all ? sandboxes : sandboxes.filter((s) => access?.boxes.includes(s.name));
+
+    return Response.json({ defaultSandbox, sandboxes: visible });
   } catch {
     // No sandboxes / nemoclaw unavailable — return an empty inventory so the UI
     // falls back to the first-run setup form instead of erroring.

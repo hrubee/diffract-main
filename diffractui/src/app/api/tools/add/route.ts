@@ -1,3 +1,4 @@
+import { requireBoxAccess as __rba } from "@/lib/rbac";
 export const dynamic = "force-dynamic";
 
 import { execFile, spawn } from "child_process";
@@ -129,6 +130,7 @@ export async function POST(req: Request): Promise<Response> {
     return Response.json({ error: "Invalid JSON body" }, { status: 400 });
   }
   const sandbox = body.sandbox || "";
+  { const __d = await __rba(sandbox); if (__d) return __d; }
   const transport = body.transport === "rest" ? "rest" : "cli";
   const t = body.tool;
   if (!SANDBOX_NAME_RE.test(sandbox)) {

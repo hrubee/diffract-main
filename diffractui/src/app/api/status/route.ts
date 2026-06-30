@@ -1,4 +1,5 @@
 import { spawn, execFileSync } from "child_process";
+import { requireBoxAccess } from "@/lib/rbac";
 
 const DIFFRACT = process.env.DIFFRACT_PATH || "nemoclaw";
 const OPENSHELL = process.env.OPENSHELL_PATH || "openshell";
@@ -9,6 +10,13 @@ export async function GET(request: Request) {
   const wantLogs = searchParams.get("logs") === "true";
   const wantPolicy = searchParams.get("policy") === "true";
   const wantRules = searchParams.get("rules") === "true";
+
+  // RBAC: a non-admin may only read a box assigned to them. (Admins, and the
+  // empty-sandbox auto-detect path, pass through.)
+  if (sandbox) {
+    const denied = await requireBoxAccess(sandbox);
+    if (denied) return denied;
+  }
 
   if (wantLogs) {
     return streamLogs(sandbox);

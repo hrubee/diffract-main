@@ -175,6 +175,10 @@ regen_caddy() {
         cat >> "$tmp" <<CADDY
     redir /$name/agent /$name/agent/
     handle /$name/agent/v1/* {
+        forward_auth 127.0.0.1:3000 {
+            uri /api/authz?box=$name
+            copy_headers X-Hermes-User-Id
+        }
         uri strip_prefix /$name/agent
         reverse_proxy 127.0.0.1:$gw {
             header_up Host {upstream_hostport}
@@ -183,6 +187,10 @@ regen_caddy() {
         }
     }
     handle /$name/agent/* {
+        forward_auth 127.0.0.1:3000 {
+            uri /api/authz?box=$name
+            copy_headers X-Hermes-User-Id
+        }
         uri strip_prefix /$name/agent
         reverse_proxy 127.0.0.1:$web {
             header_up Host {upstream_hostport}
