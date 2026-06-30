@@ -204,6 +204,7 @@ export default function Home() {
       {state === "dashboard" && (
         <Dashboard
           sandboxName={selected}
+          listenPort={sandboxes.find((s) => s.name === selected)?.listenPort ?? null}
           onBack={goToList}
           onDestroyed={goToList}
         />
