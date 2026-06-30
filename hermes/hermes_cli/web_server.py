@@ -3740,18 +3740,22 @@ def mount_spa(application: FastAPI):
 
     _index_path = WEB_DIST / "index.html"
 
-    def _serve_index(prefix: str = ""):
+    def _serve_index(prefix: str = "", user_id: str = ""):
         """Return index.html with the session token + base-path injected.
 
         ``prefix`` is the normalised ``X-Forwarded-Prefix`` (e.g. ``/hermes``)
-        or empty string when served at root.
+        or empty string when served at root. ``user_id`` is the authenticated
+        dashboard user (from X-Hermes-User-Id, injected by the Diffract Caddy
+        forward_auth gate) — the SPA namespaces its per-conversation localStorage by
+        it so two users on the SAME browser don't share chat history.
         """
         html = _index_path.read_text()
         chat_js = "true" if _DASHBOARD_EMBEDDED_CHAT_ENABLED else "false"
         token_script = (
             f'<script>window.__HERMES_SESSION_TOKEN__="{_SESSION_TOKEN}";'
             f"window.__HERMES_DASHBOARD_EMBEDDED_CHAT__={chat_js};"
-            f'window.__HERMES_BASE_PATH__="{prefix}";</script>'
+            f'window.__HERMES_BASE_PATH__="{prefix}";'
+            f'window.__HERMES_USER_ID__="{user_id}";</script>'
         )
         if prefix:
             # Rewrite absolute asset URLs baked into the Vite build so the
@@ -3796,6 +3800,9 @@ def mount_spa(application: FastAPI):
     @application.get("/{full_path:path}")
     async def serve_spa(full_path: str, request: Request):
         prefix = _normalise_prefix(request.headers.get("x-forwarded-prefix"))
+        # Authenticated user from the Diffract Caddy forward_auth gate. Sanitize to
+        # an identifier (it lands in an HTML <script>) — defends against injection.
+        user_id = re.sub(r"[^a-zA-Z0-9_-]", "", request.headers.get("x-hermes-user-id", "") or "")[:64]
         file_path = WEB_DIST / full_path
         # Prevent path traversal via url-encoded sequences (%2e%2e/)
         if (
@@ -3805,7 +3812,7 @@ def mount_spa(application: FastAPI):
             and file_path.is_file()
         ):
             return FileResponse(file_path)
-        return _serve_index(prefix)
+        return _serve_index(prefix, user_id)
 
 
 # ---------------------------------------------------------------------------

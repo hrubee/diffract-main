@@ -37,7 +37,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Markdown } from "@/components/Markdown";
-import { HERMES_BASE_PATH } from "@/lib/api";
+import { HERMES_BASE_PATH, HERMES_USER_ID } from "@/lib/api";
 import { GatewayClient } from "@/lib/gatewayClient";
 import { executeSlash } from "@/lib/slashExec";
 import { cn } from "@/lib/utils";
@@ -68,11 +68,16 @@ interface Conversation {
   updatedAt: number;
 }
 
-// Chat history is namespaced by the dashboard's base path so each sandbox keeps
-// its OWN history. All sandboxes are served from one origin (path-based:
-// /<name>/agent/), so a single shared key would leak one sandbox's conversations
-// into another via localStorage. HERMES_BASE_PATH is "" at the bare origin.
-const STORE_KEY = `diffract.chat.v1${HERMES_BASE_PATH ? `::${HERMES_BASE_PATH}` : ""}`;
+// Chat history is namespaced by (user, sandbox) so it never leaks between users
+// or boxes. All sandboxes are served from one origin (path-based: /<name>/agent/),
+// so a single shared key would leak one box's — or one user's — conversations into
+// another via localStorage. HERMES_BASE_PATH identifies the box ("" at root);
+// HERMES_USER_ID is the authenticated user ("" without per-user auth). The agent's
+// server-side transcript + memory are ALSO scoped per user (api_server namespaces
+// sessions by X-Hermes-User-Id), so history is isolated server-side too.
+const STORE_KEY =
+  `diffract.chat.v1${HERMES_BASE_PATH ? `::${HERMES_BASE_PATH}` : ""}` +
+  `${HERMES_USER_ID ? `::u:${HERMES_USER_ID}` : ""}`;
 // The chat completions endpoint, served under this dashboard's base path so it
 // works when the app is mounted at a per-sandbox prefix (e.g. /<name>/agent) —
 // Caddy routes <prefix>/v1/* to THAT sandbox's gateway. HERMES_BASE_PATH is "" at

@@ -1125,6 +1125,22 @@ class APIServerAdapter(BasePlatformAdapter):
 
         stream = _coerce_request_bool(body.get("stream"), default=False)
 
+        # Per-user history scoping. The Diffract Caddy layer authenticates the
+        # dashboard user (forward_auth) and injects X-Hermes-User-Id on every
+        # request to this box. Namespace session IDs by it so each user's
+        # transcripts + long-term memory are isolated server-side, and one user can
+        # never load another's history — even by supplying someone else's session id
+        # (a foreign id is re-prefixed into the caller's namespace -> an empty/new
+        # session). Empty header (e.g. messaging platforms, direct gateway use) is a
+        # no-op, preserving existing behaviour.
+        _uid = re.sub(r"[^a-zA-Z0-9_-]", "", request.headers.get("X-Hermes-User-Id", "").strip())[:64]
+
+        def _scope_sid(sid: str) -> str:
+            if not _uid:
+                return sid
+            pfx = f"u:{_uid}:"
+            return sid if sid.startswith(pfx) else pfx + sid
+
         # Extract system message (becomes ephemeral system prompt layered ON TOP of core)
         system_prompt = None
         conversation_messages: List[Dict[str, str]] = []
@@ -1178,16 +1194,19 @@ class APIServerAdapter(BasePlatformAdapter):
         # read arbitrary session history by guessing/enumerating session IDs.
         provided_session_id = request.headers.get("X-Hermes-Session-Id", "").strip()
         if provided_session_id:
-            if not self._api_key:
+            # Continuation exposes conversation history, so require authentication:
+            # either a configured API key OR a forward_auth-vouched user (X-Hermes-
+            # User-Id, injected by the Diffract Caddy gate). With per-user namespacing
+            # below, a user can only ever load sessions within their own namespace.
+            if not self._api_key and not _uid:
                 logger.warning(
                     "Session continuation via X-Hermes-Session-Id rejected: "
-                    "no API key configured.  Set API_SERVER_KEY to enable "
-                    "session continuity."
+                    "no API key and no authenticated user (X-Hermes-User-Id)."
                 )
                 return web.json_response(
                     _openai_error(
-                        "Session continuation requires API key authentication. "
-                        "Configure API_SERVER_KEY to enable this feature."
+                        "Session continuation requires authentication. "
+                        "Configure API_SERVER_KEY or front the server with a user-auth proxy."
                     ),
                     status=403,
                 )
@@ -1197,7 +1216,7 @@ class APIServerAdapter(BasePlatformAdapter):
                     {"error": {"message": "Invalid session ID", "type": "invalid_request_error"}},
                     status=400,
                 )
-            session_id = provided_session_id
+            session_id = _scope_sid(provided_session_id)
             try:
                 db = self._ensure_session_db()
                 if db is not None:
@@ -1215,7 +1234,7 @@ class APIServerAdapter(BasePlatformAdapter):
                 if cm.get("role") == "user":
                     first_user = cm.get("content", "")
                     break
-            session_id = _derive_chat_session_id(system_prompt, first_user)
+            session_id = _scope_sid(_derive_chat_session_id(system_prompt, first_user))
             # history already set from request body above
 
         completion_id = f"chatcmpl-{uuid.uuid4().hex[:29]}"
