@@ -231,6 +231,32 @@ export async function GET(request: Request) {
       );
       if (!redeploy) send("log", `Provider: ${provider}, Model: ${model}`);
 
+      // Restart the port forwarder + gateway watchdog. ALWAYS called after onboard,
+      // on success AND failure, so a failed deploy never leaves them stopped.
+      let forwardersRestarted = false;
+      function restartForwarders() {
+        if (forwardersRestarted) return;
+        forwardersRestarted = true;
+        exec("sudo systemctl restart sandbox-port-forwarder diffract-gateway-watchdog", (err) => {
+          if (err) send("log", `WARN: forwarder/watchdog restart failed: ${err.message}`);
+        });
+      }
+
+      // Stop the forwarder + watchdog BEFORE recreating. The forwarder holds host
+      // :8642 (the default sandbox's gateway port); during the DEFAULT sandbox's own
+      // rebuild that collides ("dashboard port 8642 became host-bound") and aborts
+      // onboard — which then DELETES the half-built sandbox, taking the live default
+      // down. The watchdog would also thrash the half-built box. restartForwarders()
+      // below brings both back once onboard finishes. (Permanent fix for the
+      // 2026-06-30 default-recreate outage — replaces the manual stop/restart.)
+      try {
+        execSync("sudo systemctl stop sandbox-port-forwarder diffract-gateway-watchdog", {
+          timeout: 15000,
+        });
+      } catch {
+        /* services absent (e.g. local dev) — nothing to stop */
+      }
+
       const proc = spawn(`${DIFFRACT} onboard --no-gpu --agent hermes --recreate-sandbox`, [], {
         env,
         shell: true,
@@ -261,6 +287,9 @@ export async function GET(request: Request) {
 
       proc.on("close", async (code) => {
         if (code !== 0) {
+          // Bring the forwarder + watchdog back even on failure, so a failed deploy
+          // never leaves the live default's chat backend down.
+          restartForwarders();
           send("error", `Deployment failed with exit code ${code}`);
           if (!isClosed) {
             isClosed = true;
@@ -277,11 +306,8 @@ export async function GET(request: Request) {
           );
         }
 
-        // Restart the port forwarder systemd service (fast; log if it fails so a
-        // dead chat backend isn't silent).
-        exec(`sudo systemctl restart sandbox-port-forwarder`, (err) => {
-          if (err) send("log", `WARN: port forwarder restart failed: ${err.message}`);
-        });
+        // Bring the forwarder + watchdog back now that the rebuild is done.
+        restartForwarders();
 
         // Apply egress (host allowlist + attributed binary, from the registry) for
         // EVERY connected tool to the fresh sandbox, so a tool attached at create
@@ -381,6 +407,8 @@ export async function GET(request: Request) {
       });
 
       proc.on("error", (err) => {
+        // Onboard never started — restore the services we stopped above.
+        restartForwarders();
         send("error", `Failed to start: ${err.message}`);
         if (!isClosed) {
           isClosed = true;
