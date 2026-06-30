@@ -36,8 +36,19 @@ records() { ls "$RECORD_DIR"/*.conf 2>/dev/null; }
 # base64 JSON of non-secret static headers (e.g. GHL locationId). No real secret is
 # stored in records — it lives in the OpenShell provider. (base64 has no '|', safe.)
 record_fields() {
-  ( set -e; NAME=; URL=; HOST=; HEADER=; SECRET_ENV=; PROVIDER=; EXTRA_HEADERS_B64=; . "$1"
-    printf '%s|%s|%s|%s|%s|%s|%s\n' "$NAME" "$URL" "$HOST" "$HEADER" "$SECRET_ENV" "$PROVIDER" "$EXTRA_HEADERS_B64" )
+  ( set -e; NAME=; URL=; HOST=; HEADER=; SECRET_ENV=; PROVIDER=; EXTRA_HEADERS_B64=; SANDBOX=; . "$1"
+    printf '%s|%s|%s|%s|%s|%s|%s|%s\n' "$NAME" "$URL" "$HOST" "$HEADER" "$SECRET_ENV" "$PROVIDER" "$EXTRA_HEADERS_B64" "$SANDBOX" )
+}
+
+# Default sandbox — a legacy record with no SANDBOX field belongs to it (so old
+# MCP servers don't leak into newly-created boxes).
+_DEFSB="$(jq -r '.defaultSandbox // empty' "$HOME/.nemoclaw/sandboxes.json" 2>/dev/null)"
+# True iff the record at $1 belongs to the queried $SANDBOX (per-box isolation).
+record_in_sandbox() {
+  local rsb
+  rsb="$(record_fields "$1" | awk -F'|' '{print $8}')"
+  [ -z "$rsb" ] && rsb="$_DEFSB"
+  [ "$rsb" = "$SANDBOX" ]
 }
 
 sandbox_cid() { "$DOCKER" ps -q -f "label=openshell.ai/sandbox-name=${SANDBOX}" 2>/dev/null | head -1; }
@@ -48,8 +59,9 @@ case "$MODE" in
     # injects the placeholder env var the config resolves against).
     out=""
     for f in $(records); do
-      IFS='|' read -r NAME URL HOST HEADER SECRET_ENV PROVIDER EXTRA_HEADERS_B64 < <(record_fields "$f")
+      IFS='|' read -r NAME URL HOST HEADER SECRET_ENV PROVIDER EXTRA_HEADERS_B64 RSANDBOX < <(record_fields "$f")
       [ -z "$PROVIDER" ] && continue
+      [ "${RSANDBOX:-$_DEFSB}" = "$SANDBOX" ] || continue   # per-box: only this sandbox's servers
       out="${out:+$out,}$PROVIDER"
     done
     echo "$out"
@@ -66,8 +78,9 @@ case "$MODE" in
     fi
     applied=0
     for f in $(records); do
-      IFS='|' read -r NAME URL HOST HEADER SECRET_ENV PROVIDER EXTRA_HEADERS_B64 < <(record_fields "$f")
+      IFS='|' read -r NAME URL HOST HEADER SECRET_ENV PROVIDER EXTRA_HEADERS_B64 RSANDBOX < <(record_fields "$f")
       [ -z "$NAME" ] && continue
+      [ "${RSANDBOX:-$_DEFSB}" = "$SANDBOX" ] || continue   # per-box: only this sandbox's servers
       # Provider: re-attach (idempotent) so the credential env var is injected.
       "$OPENSHELL" sandbox provider detach "$SANDBOX" "$PROVIDER" >/dev/null 2>&1 || true
       "$OPENSHELL" sandbox provider attach "$SANDBOX" "$PROVIDER" >/dev/null 2>&1 || true
@@ -134,8 +147,9 @@ PY
     printf '{'
     first=1
     for f in $(records); do
-      IFS='|' read -r NAME URL HOST HEADER SECRET_ENV PROVIDER EXTRA_HEADERS_B64 < <(record_fields "$f")
+      IFS='|' read -r NAME URL HOST HEADER SECRET_ENV PROVIDER EXTRA_HEADERS_B64 RSANDBOX < <(record_fields "$f")
       [ -z "$NAME" ] && continue
+      [ "${RSANDBOX:-$_DEFSB}" = "$SANDBOX" ] || continue   # per-box: only this sandbox's servers
       [ $first -eq 0 ] && printf ','; first=0
       # Extra headers as a name->KEY map (base64 JSON). Each value becomes a ${KEY}
       # placeholder too, so NOTHING is verbatim in the agent config.
@@ -157,7 +171,7 @@ PY
 
   list)
     for f in $(records); do
-      IFS='|' read -r NAME URL HOST HEADER SECRET_ENV PROVIDER EXTRA_HEADERS_B64 < <(record_fields "$f")
+      IFS='|' read -r NAME URL HOST HEADER SECRET_ENV PROVIDER EXTRA_HEADERS_B64 RSANDBOX < <(record_fields "$f")
       echo "mcp: $NAME  host=$HOST${HEADER:+  header=$HEADER}  provider=$PROVIDER  (secret host-side)"
     done
     ;;

@@ -162,15 +162,19 @@ export async function GET(request: Request) {
   // daemon only at create, so attaching after create reaches exec sessions but
   // not chat. The list is computed from the registry (diffract-tool-sync.sh) —
   // adding a tool needs no code here. Egress for each is applied after onboard.
+  // Per-box isolation: attach only THIS sandbox's connected tools/MCP at create,
+  // not the host-global set. A brand-new sandbox has none (starts clean); a
+  // recreate re-attaches only its own. `sbxArg` is the validated sandbox name.
+  const sbxArg = SANDBOX_NAME_RE.test(sandboxName) ? ` ${sandboxName}` : "";
   try {
-    const toolProviders = execSync("/usr/local/bin/diffract-tool-sync.sh providers", {
+    const toolProviders = execSync(`/usr/local/bin/diffract-tool-sync.sh providers${sbxArg}`, {
       encoding: "utf8",
       timeout: 15000,
     }).trim();
     // MCP servers also attach their token provider at create (diffract-mcp-sync.sh).
     let mcpProviders = "";
     try {
-      mcpProviders = execSync("/usr/local/bin/diffract-mcp-sync.sh providers", {
+      mcpProviders = execSync(`/usr/local/bin/diffract-mcp-sync.sh providers${sbxArg}`, {
         encoding: "utf8",
         timeout: 15000,
       }).trim();
@@ -191,7 +195,7 @@ export async function GET(request: Request) {
   // gateway reload. The URLs hold ${SECRET_ENV} placeholders; the token lives in
   // the OpenShell provider attached at create (above).
   try {
-    const mcpConfig = execSync("/usr/local/bin/diffract-mcp-sync.sh config", {
+    const mcpConfig = execSync(`/usr/local/bin/diffract-mcp-sync.sh config${sbxArg}`, {
       encoding: "utf8",
       timeout: 15000,
     }).trim();

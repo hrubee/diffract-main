@@ -36,14 +36,23 @@ if ! command -v jq >/dev/null 2>&1; then
 fi
 
 # Connected tools = the persistent connect-flow list (gateway-independent),
-# filtered to entries still in the registry when the registry is available.
-# Falls back to registry ∩ providers (needs the gateway) only when no list file
-# exists yet — e.g. a tool connected out-of-band before this mechanism shipped.
+# filtered to entries still in the registry when the registry is available AND
+# belonging to THIS sandbox. Records are "tool:sandbox" so a tool connected to
+# one box is never attached to another. Legacy bare "tool" entries (pre per-box
+# isolation) are treated as belonging to the default sandbox so they don't leak
+# into newly-created boxes. Falls back to registry ∩ providers (needs the gateway)
+# only when no list file exists yet.
 connected_tools() {
-  local t
+  local line t sbx defsb
+  defsb="$(jq -r '.defaultSandbox // empty' "$HOME/.nemoclaw/sandboxes.json" 2>/dev/null)"
   if [ -s "$CONNECTED_FILE" ]; then
-    while IFS= read -r t; do
-      t="$(printf '%s' "$t" | tr -d '[:space:]')"; [ -z "$t" ] && continue
+    while IFS= read -r line; do
+      line="$(printf '%s' "$line" | tr -d '[:space:]')"; [ -z "$line" ] && continue
+      case "$line" in
+        *:*) t="${line%:*}"; sbx="${line##*:}" ;;
+        *)   t="$line";      sbx="$defsb" ;;   # legacy entry -> default sandbox
+      esac
+      [ "$sbx" = "$SANDBOX" ] || continue       # only THIS sandbox's tools
       if [ -f "$REGISTRY" ]; then
         jq -e --arg n "$t" '.tools[]|select(.name==$n)' "$REGISTRY" >/dev/null 2>&1 && echo "$t"
       else
@@ -117,5 +126,5 @@ case "$MODE" in
     done
     ;;
   *)
-    echo "usage: $0 providers | egress [<sandbox>] | list" >&2; exit 2 ;;
+    echo "usage: $0 providers [<sandbox>] | egress [<sandbox>] | list [<sandbox>]" >&2; exit 2 ;;
 esac
