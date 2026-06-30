@@ -21,6 +21,7 @@ import { SESSION_COOKIE, verifySessionToken } from "@/lib/auth";
 // ─────────────────────────────────────────────────────────────────────────
 
 const execFileAsync = promisify(execFile);
+const OPENSHELL = process.env.OPENSHELL_PATH || "openshell";
 const SANDBOX_NAME_RE = /^[a-zA-Z0-9_-]+$/;
 const NAME_RE = /^[a-z][a-z0-9-]{0,40}$/;
 const MCP_DIR = process.env.DIFFRACT_MCP_DIR || "/var/lib/diffract/connected-mcp.d";
@@ -82,10 +83,36 @@ function connectScript(): Promise<string | null> {
   ]);
 }
 
-// ── GET: list connected MCP servers (from the host-side records) ──────────
-export async function GET(): Promise<Response> {
+// ── GET: list MCP servers (host-side records) + per-sandbox attached state ──
+// The .conf records are HOST-GLOBAL (one per connected MCP server). Whether a
+// server is actually wired into a GIVEN sandbox depends on its provider being
+// attached to THAT sandbox — so we mark each server `attached` from
+// `openshell sandbox provider list <sandbox>` (a fresh sandbox shows none),
+// instead of reporting every global record as connected for every sandbox.
+export async function GET(req: Request): Promise<Response> {
   const unauth = await requireSession();
   if (unauth) return unauth;
+
+  // Sandbox to scope `attached` to; default to the default sandbox when omitted
+  // (e.g. the in-sandbox dashboard panel), matching POST/DELETE.
+  let sandbox = (new URL(req.url).searchParams.get("sandbox") || "").trim();
+  if (!sandbox) sandbox = await defaultSandbox();
+  const scoped = SANDBOX_NAME_RE.test(sandbox) ? sandbox : "";
+
+  // Providers actually attached to this sandbox (empty if none / sandbox gone).
+  let attachedProviders = "";
+  if (scoped) {
+    try {
+      const { stdout } = await execFileAsync(
+        OPENSHELL,
+        ["sandbox", "provider", "list", scoped],
+        { timeout: 12000 },
+      );
+      attachedProviders = stdout;
+    } catch {
+      /* no providers attached / sandbox not running — treat as none */
+    }
+  }
 
   let files: string[] = [];
   try {
@@ -101,12 +128,17 @@ export async function GET(): Promise<Response> {
         const m = raw.match(new RegExp("^" + k + "=(.*)$", "m"));
         return m ? m[1].replace(/^['"]|['"]$/g, "") : "";
       };
-      servers.push({ name: get("NAME"), host: get("HOST"), secretEnv: get("SECRET_ENV") });
+      const name = get("NAME");
+      const provider = get("PROVIDER") || `${name}-mcp`;
+      const attached = scoped
+        ? new RegExp(`(^|\\s)${provider}(\\s|$)`, "m").test(attachedProviders)
+        : false;
+      servers.push({ name, host: get("HOST"), secretEnv: get("SECRET_ENV"), provider, attached });
     } catch {
       /* skip unreadable */
     }
   }
-  return Response.json({ servers });
+  return Response.json({ sandbox: scoped, servers });
 }
 
 // ── POST: connect an MCP server ──────────────────────────────────────────

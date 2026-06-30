@@ -116,7 +116,7 @@ export default function ToolsTab({
   onRedeploy?: () => void;
 }) {
   const [tools, setTools] = useState<Tool[]>([]);
-  const [mcpServers, setMcpServers] = useState<{ name: string; host: string; secretEnv: string }[]>([]);
+  const [mcpServers, setMcpServers] = useState<{ name: string; host: string; secretEnv: string; attached?: boolean }[]>([]);
   const [fbStatus, setFbStatus] = useState<{
     connected: boolean;
     pageName?: string;
@@ -159,10 +159,18 @@ export default function ToolsTab({
       })
       .catch((e) => setError(e.message || "Failed to load tools"))
       .finally(() => setLoading(false));
-    // Connected MCP servers (host-side records — independent of the tool registry).
-    fetch("/api/mcp")
+    // MCP servers ACTUALLY attached to THIS sandbox. The .conf records are
+    // host-global, so we pass the sandbox and keep only the ones whose provider
+    // is attached to it — a fresh sandbox shows none (not the global set).
+    fetch(`/api/mcp?sandbox=${encodeURIComponent(sandboxName)}`)
       .then((r) => r.json())
-      .then((data) => setMcpServers(Array.isArray(data.servers) ? data.servers : []))
+      .then((data) =>
+        setMcpServers(
+          Array.isArray(data.servers)
+            ? data.servers.filter((s: { attached?: boolean }) => s.attached)
+            : [],
+        ),
+      )
       .catch(() => {});
     // Facebook/Instagram connected state (non-secret record).
     fetch("/api/facebook")
