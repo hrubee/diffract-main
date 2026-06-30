@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 export default function LoginPage() {
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -19,7 +20,7 @@ export default function LoginPage() {
       const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password }),
+        body: JSON.stringify({ username, password }),
       });
       if (res.ok) {
         const next = new URLSearchParams(window.location.search).get("next");
@@ -54,12 +55,24 @@ export default function LoginPage() {
         )}
 
         <label className="flex flex-col gap-1">
-          <span className="text-xs text-nc-text-muted">Admin password</span>
+          <span className="text-xs text-nc-text-muted">Username</span>
+          <input
+            type="text"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            autoFocus
+            autoComplete="username"
+            placeholder="admin"
+            className="rounded-md border border-nc-border bg-nc-bg px-3 py-2 text-sm text-nc-text outline-none focus:border-nc-green font-mono"
+          />
+        </label>
+
+        <label className="flex flex-col gap-1">
+          <span className="text-xs text-nc-text-muted">Password</span>
           <input
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            autoFocus
             autoComplete="current-password"
             className="rounded-md border border-nc-border bg-nc-bg px-3 py-2 text-sm text-nc-text outline-none focus:border-nc-green"
           />

@@ -14,6 +14,22 @@
 export const SESSION_COOKIE = "diffract_session";
 const DEFAULT_TTL_SECONDS = 60 * 60 * 12; // 12h
 
+// Reserved username for the bootstrap super-admin (logs in with
+// DIFFRACT_ADMIN_PASSWORD). Regular users live in the user store (lib/users.ts).
+export const ADMIN_USERNAME = "admin";
+
+/** The identity carried by a session: which user, and whether they're an admin. */
+export interface SessionInfo {
+  username: string;
+  isAdmin: boolean;
+}
+
+interface TokenClaims {
+  sub?: string; // username
+  adm?: boolean; // isAdmin
+  exp: number;
+}
+
 function getSecret(): string | null {
   const s = process.env.DIFFRACT_AUTH_SECRET;
   return s && s.length >= 16 ? s : null;
@@ -64,14 +80,80 @@ function constantTimeEqual(a: Uint8Array, b: Uint8Array): boolean {
   return diff === 0;
 }
 
-/** Mint a signed session token, or null if auth isn't configured. */
-export async function createSessionToken(ttlSeconds = DEFAULT_TTL_SECONDS): Promise<string | null> {
+/**
+ * Mint a signed session token, or null if auth isn't configured. Pass the
+ * authenticated user's identity as claims; omit for the legacy super-admin token
+ * (a claim-less token is treated as the bootstrap admin by getSession, so existing
+ * admin sessions keep working across the multi-user upgrade).
+ */
+export async function createSessionToken(
+  claims: SessionInfo | null = null,
+  ttlSeconds = DEFAULT_TTL_SECONDS,
+): Promise<string | null> {
   const secret = getSecret();
   if (!secret) return null;
-  const payload = JSON.stringify({ exp: Date.now() + ttlSeconds * 1000 });
+  const body: TokenClaims = { exp: Date.now() + ttlSeconds * 1000 };
+  if (claims) {
+    body.sub = claims.username;
+    body.adm = claims.isAdmin;
+  }
+  const payload = JSON.stringify(body);
   const payloadB64 = b64urlEncode(new TextEncoder().encode(payload));
   const sig = await hmac(secret, payloadB64);
   return `${payloadB64}.${b64urlEncode(sig)}`;
+}
+
+/**
+ * Verify a token and return its identity, or null if invalid/expired. A valid
+ * token with no `sub` claim is the legacy super-admin (pre-multi-user cookies).
+ */
+export async function getSession(token: string | undefined | null): Promise<SessionInfo | null> {
+  if (!token) return null;
+  const secret = getSecret();
+  if (!secret) return null;
+  const parts = token.split(".");
+  if (parts.length !== 2) return null;
+  const [payloadB64, sigB64] = parts;
+  const expected = await hmac(secret, payloadB64);
+  let provided: Uint8Array;
+  try {
+    provided = b64urlToBytes(sigB64);
+  } catch {
+    return null;
+  }
+  if (!constantTimeEqual(expected, provided)) return null;
+  try {
+    const payload = JSON.parse(new TextDecoder().decode(b64urlToBytes(payloadB64))) as TokenClaims;
+    if (typeof payload.exp !== "number" || payload.exp <= Date.now()) return null;
+    // No sub -> a pre-upgrade admin cookie: treat as the super-admin.
+    return {
+      username: typeof payload.sub === "string" ? payload.sub : ADMIN_USERNAME,
+      isAdmin: payload.sub === undefined ? true : payload.adm === true,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** HMAC-hash a password for at-rest storage in the user store (lib/users.ts). */
+export async function hashPassword(password: string): Promise<string> {
+  const secret = getSecret();
+  if (!secret) return "";
+  return b64urlEncode(await hmac(secret, password));
+}
+
+/** Constant-time compare a password against a stored hashPassword() digest. */
+export async function verifyPasswordHash(input: string, storedHash: string): Promise<boolean> {
+  const secret = getSecret();
+  if (!secret || !storedHash) return false;
+  const a = await hmac(secret, input);
+  let b: Uint8Array;
+  try {
+    b = b64urlToBytes(storedHash);
+  } catch {
+    return false;
+  }
+  return constantTimeEqual(a, b);
 }
 
 /** Verify a session token's signature and expiry. */

@@ -4,8 +4,9 @@ import { useState, useEffect, useCallback } from "react";
 import SetupForm from "./components/SetupForm";
 import DeployProgress from "./components/DeployProgress";
 import Dashboard from "./components/Dashboard";
+import UsersTab from "./components/UsersTab";
 
-type AppState = "loading" | "list" | "setup" | "deploying" | "dashboard";
+type AppState = "loading" | "list" | "setup" | "deploying" | "dashboard" | "users";
 
 // Hard cap on concurrent sandboxes for a single VPS (2 vCPU / 8 GB): each is a
 // container plus its own inference connection. Surfaced in the list UI.
@@ -29,6 +30,7 @@ export default function Home() {
   const [sandboxes, setSandboxes] = useState<SandboxRow[]>([]);
   const [selected, setSelected] = useState("");
   const [deployLogs, setDeployLogs] = useState<string[]>([]);
+  const [isAdmin, setIsAdmin] = useState(false);
 
   // Load the full sandbox inventory. Returns the rows so callers can branch on
   // count (e.g. first-run -> setup form).
@@ -57,6 +59,11 @@ export default function Home() {
         setState(rows.length > 0 ? "list" : "setup");
       })
       .catch(() => setState("setup"));
+    // Who am I — gates the admin-only Users view.
+    fetch("/api/me")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => setIsAdmin(d?.isAdmin === true))
+      .catch(() => setIsAdmin(false));
   }, []);
 
   function handleDeploy(config: Record<string, string>) {
@@ -127,6 +134,15 @@ export default function Home() {
                 {sandboxes.length} of {MAX_SANDBOXES} sandboxes
               </p>
             </div>
+            <div className="flex items-center gap-2">
+            {isAdmin && (
+              <button
+                onClick={() => setState("users")}
+                className="px-3 py-2 rounded-md text-sm font-medium bg-nc-surface-hover border border-nc-border text-nc-text-muted hover:text-nc-text transition-all"
+              >
+                Users
+              </button>
+            )}
             <button
               onClick={() => setState("setup")}
               disabled={atCap}
@@ -139,6 +155,7 @@ export default function Home() {
             >
               + New sandbox
             </button>
+            </div>
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2">
@@ -209,6 +226,8 @@ export default function Home() {
           onDestroyed={goToList}
         />
       )}
+
+      {state === "users" && isAdmin && <UsersTab onBack={() => setState("list")} />}
     </main>
   );
 }
