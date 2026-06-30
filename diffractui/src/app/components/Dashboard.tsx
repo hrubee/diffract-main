@@ -14,9 +14,11 @@ interface Props {
   // Dashboard link points at the sandbox's OWN path (/<name>/agent/) instead of
   // the shared legacy /agent (which always serves the default sandbox).
   chatReady?: boolean;
+  // Only admins may destroy a sandbox (the API enforces it; this hides the button).
+  isAdmin?: boolean;
 }
 
-export default function Dashboard({ sandboxName, onDestroyed, onBack, chatReady }: Props) {
+export default function Dashboard({ sandboxName, onDestroyed, onBack, chatReady, isAdmin }: Props) {
   const [activeTab, setActiveTab] = useState<"status" | "files" | "tools" | "logs" | "policies" | "rules">("status");
   const [status, setStatus] = useState<Record<string, string>>({});
   const [logs, setLogs] = useState<string[]>([]);
@@ -432,7 +434,10 @@ export default function Dashboard({ sandboxName, onDestroyed, onBack, chatReady 
               setTokenCopied("connect");
               setTimeout(() => setTokenCopied(""), 2000);
             }} labelOverride={tokenCopied === "connect" ? "Copied!" : undefined} />
+            {isAdmin && (
             <ActionButton label="Redeploy" desc="Recreate the sandbox to load newly-connected tools / MCP servers into chat (model preserved)" variant="secondary" onClick={startRedeploy} />
+            )}
+            {isAdmin && (
             <ActionButton label="Destroy" desc="Delete sandbox" variant="danger" onClick={() => {
               if (
                 confirm(
@@ -457,6 +462,7 @@ export default function Dashboard({ sandboxName, onDestroyed, onBack, chatReady 
                   .catch(() => {});
               }
             }} />
+            )}
           </div>
         </div>
       )}

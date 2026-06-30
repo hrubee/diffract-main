@@ -143,6 +143,7 @@ export default function Home() {
                 Users
               </button>
             )}
+            {isAdmin && (
             <button
               onClick={() => setState("setup")}
               disabled={atCap}
@@ -155,6 +156,7 @@ export default function Home() {
             >
               + New sandbox
             </button>
+            )}
             </div>
           </div>
 
@@ -222,6 +224,7 @@ export default function Home() {
         <Dashboard
           sandboxName={selected}
           chatReady={sandboxes.find((s) => s.name === selected)?.chatReady ?? false}
+          isAdmin={isAdmin}
           onBack={goToList}
           onDestroyed={goToList}
         />
