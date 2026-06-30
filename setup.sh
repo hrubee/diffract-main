@@ -600,6 +600,10 @@ EOF
         install -m 0755 "$PROJECT_ROOT/scripts/diffract-sandbox-fleet.sh" /usr/local/bin/diffract-sandbox-fleet.sh \
             && print_success "  installed diffract-sandbox-fleet.sh"
     fi
+    if [ -f "$PROJECT_ROOT/scripts/diffract-sandbox-fleet-selftest.sh" ]; then
+        install -m 0755 "$PROJECT_ROOT/scripts/diffract-sandbox-fleet-selftest.sh" /usr/local/bin/diffract-sandbox-fleet-selftest.sh \
+            && print_success "  installed diffract-sandbox-fleet-selftest.sh"
+    fi
 
     cat <<'EOF' > /usr/local/bin/sandbox-port-forwarder.sh
 #!/bin/bash
