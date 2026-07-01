@@ -172,8 +172,8 @@ export default function ToolsTab({
         ),
       )
       .catch(() => {});
-    // Facebook/Instagram connected state (non-secret record).
-    fetch("/api/facebook")
+    // Facebook/Instagram connected state (non-secret record) — per-sandbox.
+    fetch(`/api/facebook?sandbox=${encodeURIComponent(sandboxName)}`)
       .then((r) => r.json())
       .then((d) => setFbStatus(d))
       .catch(() => {});
