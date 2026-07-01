@@ -309,6 +309,25 @@ export async function GET(request: Request) {
         // Bring the forwarder + watchdog back now that the rebuild is done.
         restartForwarders();
 
+        // Reconcile tool/MCP attachments: detach any provider attached to this
+        // sandbox that it does NOT own (per the per-box records) — self-heals
+        // isolation on every recreate and cleans stale cross-sandbox attachments
+        // (OpenShell can carry attachments across recreate by sandbox name). Never
+        // touches the inference provider. Best-effort; streamed into the log.
+        if (SANDBOX_NAME_RE.test(sName)) {
+          for (const script of ["diffract-tool-sync.sh", "diffract-mcp-sync.sh"]) {
+            try {
+              const out = execSync(`/usr/local/bin/${script} reconcile ${sName}`, {
+                encoding: "utf8",
+                timeout: 20000,
+              }).trim();
+              for (const line of out.split("\n").filter(Boolean)) send("log", line);
+            } catch {
+              /* reconcile is best-effort */
+            }
+          }
+        }
+
         // Apply egress (host allowlist + attributed binary, from the registry) for
         // EVERY connected tool to the fresh sandbox, so a tool attached at create
         // can actually reach its API. Registry-driven — covers any tool we add.

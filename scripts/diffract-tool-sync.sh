@@ -125,6 +125,19 @@ case "$MODE" in
       echo "connected: $t  hosts=[$(tool_hosts "$t" | paste -sd, -)]  binaries=[$(tool_binaries "$t" | paste -sd, -)]"
     done
     ;;
+  reconcile)
+    # Detach tool providers attached to <sandbox> that it does NOT own. Only touches
+    # providers that are REGISTRY tools (never the inference provider). Self-heals
+    # per-box isolation + cleans stale cross-sandbox attachments.
+    [ -f "$REGISTRY" ] || { echo "[tool-sync] reconcile: no registry; skip"; exit 0; }
+    owned=" $(connected_tools | paste -sd' ' -) "
+    for p in $("$OPENSHELL" sandbox provider list "$SANDBOX" 2>/dev/null | awk 'NR>1{print $1}'); do
+      jq -e --arg n "$p" '.tools[]|select(.name==$n)' "$REGISTRY" >/dev/null 2>&1 || continue  # registry tools only
+      case "$owned" in *" $p "*) continue ;; esac                                               # keep owned
+      "$OPENSHELL" sandbox provider detach "$SANDBOX" "$p" >/dev/null 2>&1 \
+        && echo "[tool-sync] reconcile: detached '$p' from '$SANDBOX' (belongs to another sandbox)"
+    done
+    ;;
   *)
-    echo "usage: $0 providers [<sandbox>] | egress [<sandbox>] | list [<sandbox>]" >&2; exit 2 ;;
+    echo "usage: $0 providers [<sandbox>] | egress [<sandbox>] | list [<sandbox>] | reconcile <sandbox>" >&2; exit 2 ;;
 esac

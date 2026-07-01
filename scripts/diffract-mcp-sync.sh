@@ -221,6 +221,25 @@ PY
     fi
     ;;
 
+  reconcile)
+    # Detach MCP providers attached to <sandbox> that it does NOT own (per its
+    # records). Only touches providers whose name ends in -mcp — never the inference
+    # provider or other essentials. Makes per-box isolation self-heal on every deploy
+    # AND cleans stale cross-sandbox attachments left from before isolation shipped.
+    owned=" "
+    for f in $(records); do
+      IFS='|' read -r NAME URL HOST HEADER SECRET_ENV PROVIDER EXTRA_HEADERS_B64 RSANDBOX < <(record_fields "$f")
+      [ -z "$PROVIDER" ] && continue
+      [ "${RSANDBOX:-$_DEFSB}" = "$SANDBOX" ] && owned="${owned}${PROVIDER} "
+    done
+    for p in $("$OPENSHELL" sandbox provider list "$SANDBOX" 2>/dev/null | awk 'NR>1{print $1}'); do
+      case "$p" in *-mcp) ;; *) continue ;; esac          # only MCP providers are candidates
+      case "$owned" in *" $p "*) continue ;; esac          # keep the sandbox's own
+      "$OPENSHELL" sandbox provider detach "$SANDBOX" "$p" >/dev/null 2>&1 \
+        && echo "[mcp-sync] reconcile: detached '$p' from '$SANDBOX' (belongs to another sandbox)"
+    done
+    ;;
+
   *)
-    echo "usage: $0 providers | apply [<sandbox>] | config | list | remove <name> [<sandbox>]" >&2; exit 2 ;;
+    echo "usage: $0 providers [<sandbox>] | apply [<sandbox>] | config [<sandbox>] | reconcile <sandbox> | list | remove <name> [<sandbox>]" >&2; exit 2 ;;
 esac
