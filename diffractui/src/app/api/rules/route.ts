@@ -1,10 +1,13 @@
 import { execFileSync } from "child_process";
+import { requireBoxAccess } from "@/lib/rbac";
 
 const OPENSHELL = process.env.OPENSHELL_PATH || "openshell";
 
 export async function POST(request: Request) {
   const { searchParams } = new URL(request.url);
   const sandbox = searchParams.get("sandbox") || "";
+  const __d = await requireBoxAccess(sandbox);
+  if (__d) return __d;
   const chunkId = searchParams.get("chunkId") || "";
   const action = searchParams.get("action") || "";
   const reason = searchParams.get("reason") || "";

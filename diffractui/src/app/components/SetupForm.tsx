@@ -1,6 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+
+interface Backup {
+  name: string;
+  lastBackup: string;
+  tools: string[];
+}
 
 const PROVIDERS = [
   { key: "nvidia", label: "NVIDIA Endpoints", icon: "N", models: ["nvidia/nemotron-3-super-120b-a12b", "nvidia/nemotron-3-nano-30b-a3b"], keyLabel: "NVIDIA API Key", keyHint: "nvapi-...", keyUrl: "https://build.nvidia.com/settings/api-keys" },
@@ -32,9 +38,12 @@ const SANDBOX_NAME_MAX = 63;
 
 interface Props {
   onDeploy: (config: Record<string, string>) => void;
+  // When creating an additional sandbox (not first-run), lets the operator return
+  // to the sandbox list without deploying. Omitted on first run (no list to go back to).
+  onCancel?: () => void;
 }
 
-export default function SetupForm({ onDeploy }: Props) {
+export default function SetupForm({ onDeploy, onCancel }: Props) {
   const [provider, setProvider] = useState("nvidia");
   const [apiKey, setApiKey] = useState("");
   const [model, setModel] = useState(PROVIDERS[0].models[0] || "");
@@ -48,6 +57,17 @@ export default function SetupForm({ onDeploy }: Props) {
   const [telegramToken, setTelegramToken] = useState("");
   const [discordToken, setDiscordToken] = useState("");
   const [slackToken, setSlackToken] = useState("");
+
+  // Restorable backups (deleted sandboxes whose data + tools can be brought back).
+  const [backups, setBackups] = useState<Backup[]>([]);
+  const [restoring, setRestoring] = useState<Backup | null>(null);
+
+  useEffect(() => {
+    fetch("/api/sandboxes/backups")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => setBackups(Array.isArray(d?.backups) ? d.backups : []))
+      .catch(() => setBackups([]));
+  }, []);
 
   const selectedProvider = PROVIDERS.find((p) => p.key === provider)!;
 
@@ -108,6 +128,58 @@ export default function SetupForm({ onDeploy }: Props) {
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
+        {/* Restore a deleted sandbox — its /sandbox files AND connected tools come
+            back when you redeploy it under its original name. */}
+        {backups.length > 0 && (
+          <div className="rounded-lg border border-nc-border bg-nc-surface p-4">
+            <div className="text-sm font-medium text-nc-text mb-1">Restore a deleted sandbox</div>
+            <p className="text-xs text-nc-text-muted mb-3">
+              Bring back a deleted agent with its files and connected tools. Pick one to fill the name
+              below, then choose its model and deploy.
+            </p>
+            <div className="space-y-2">
+              {backups.map((b) => {
+                const active = restoring?.name === b.name;
+                return (
+                  <button
+                    key={b.name}
+                    type="button"
+                    onClick={() => {
+                      if (active) {
+                        setRestoring(null);
+                        setSandboxName("");
+                      } else {
+                        setRestoring(b);
+                        setSandboxName(b.name);
+                      }
+                    }}
+                    className={`w-full text-left px-3 py-2 rounded-md border transition-all ${
+                      active
+                        ? "border-nc-green bg-nc-green/10"
+                        : "border-nc-border bg-nc-bg hover:border-nc-text-dim"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-mono text-sm text-nc-text">{b.name}</span>
+                      {active && <span className="text-xs text-nc-green">selected</span>}
+                    </div>
+                    <div className="text-xs text-nc-text-dim mt-0.5">
+                      {b.tools.length > 0 ? `tools: ${b.tools.join(", ")}` : "no connected tools"}
+                      {b.lastBackup ? ` · backed up ${b.lastBackup.slice(0, 10)}` : ""}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+            {restoring && (
+              <p className="text-xs text-nc-green mt-3">
+                Restoring <span className="font-mono">{restoring.name}</span> — its files
+                {restoring.tools.length > 0 ? " and tools" : ""} will be restored on deploy.
+              </p>
+            )}
+          </div>
+        )}
+
         {/* Provider Selection */}
         <div>
           <label className="block text-sm font-medium text-nc-text-muted mb-3">
@@ -336,6 +408,16 @@ export default function SetupForm({ onDeploy }: Props) {
         >
           Deploy
         </button>
+
+        {onCancel && (
+          <button
+            type="button"
+            onClick={onCancel}
+            className="w-full py-2 text-sm text-nc-text-muted hover:text-nc-text transition-all"
+          >
+            Cancel
+          </button>
+        )}
       </form>
     </div>
   );

@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 import { spawn, execSync, exec, execFile } from "child_process";
 import { existsSync, readFileSync, writeFileSync, mkdirSync, chmodSync } from "fs";
 import { cookies } from "next/headers";
-import { SESSION_COOKIE, verifySessionToken } from "@/lib/auth";
+import { SESSION_COOKIE, getSession } from "@/lib/auth";
 
 const DIFFRACT = process.env.DIFFRACT_PATH || "nemoclaw";
 // Host helper that captures a sandbox's working files before destroy so they
@@ -66,12 +66,12 @@ function backupBeforeDestroy(sandbox: string): Promise<string | null> {
   });
 }
 
-// Defense-in-depth: re-verify the admin session inside the handler, not just
-// in proxy.ts (the Next docs warn a matcher change can silently drop coverage).
+// Creating / recreating / destroying sandboxes is an ADMIN operation (boxes are
+// provisioned by the operator, then assigned to users). Require an admin session.
 async function requireSession(): Promise<Response | null> {
-  const token = (await cookies()).get(SESSION_COOKIE)?.value;
-  if (await verifySessionToken(token)) return null;
-  return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const s = await getSession((await cookies()).get(SESSION_COOKIE)?.value);
+  if (s?.isAdmin) return null;
+  return Response.json({ error: "Admin only" }, { status: 403 });
 }
 
 export async function GET(request: Request) {
@@ -162,15 +162,19 @@ export async function GET(request: Request) {
   // daemon only at create, so attaching after create reaches exec sessions but
   // not chat. The list is computed from the registry (diffract-tool-sync.sh) —
   // adding a tool needs no code here. Egress for each is applied after onboard.
+  // Per-box isolation: attach only THIS sandbox's connected tools/MCP at create,
+  // not the host-global set. A brand-new sandbox has none (starts clean); a
+  // recreate re-attaches only its own. `sbxArg` is the validated sandbox name.
+  const sbxArg = SANDBOX_NAME_RE.test(sandboxName) ? ` ${sandboxName}` : "";
   try {
-    const toolProviders = execSync("/usr/local/bin/diffract-tool-sync.sh providers", {
+    const toolProviders = execSync(`/usr/local/bin/diffract-tool-sync.sh providers${sbxArg}`, {
       encoding: "utf8",
       timeout: 15000,
     }).trim();
     // MCP servers also attach their token provider at create (diffract-mcp-sync.sh).
     let mcpProviders = "";
     try {
-      mcpProviders = execSync("/usr/local/bin/diffract-mcp-sync.sh providers", {
+      mcpProviders = execSync(`/usr/local/bin/diffract-mcp-sync.sh providers${sbxArg}`, {
         encoding: "utf8",
         timeout: 15000,
       }).trim();
@@ -191,7 +195,7 @@ export async function GET(request: Request) {
   // gateway reload. The URLs hold ${SECRET_ENV} placeholders; the token lives in
   // the OpenShell provider attached at create (above).
   try {
-    const mcpConfig = execSync("/usr/local/bin/diffract-mcp-sync.sh config", {
+    const mcpConfig = execSync(`/usr/local/bin/diffract-mcp-sync.sh config${sbxArg}`, {
       encoding: "utf8",
       timeout: 15000,
     }).trim();
@@ -227,6 +231,32 @@ export async function GET(request: Request) {
       );
       if (!redeploy) send("log", `Provider: ${provider}, Model: ${model}`);
 
+      // Restart the port forwarder + gateway watchdog. ALWAYS called after onboard,
+      // on success AND failure, so a failed deploy never leaves them stopped.
+      let forwardersRestarted = false;
+      function restartForwarders() {
+        if (forwardersRestarted) return;
+        forwardersRestarted = true;
+        exec("sudo systemctl restart sandbox-port-forwarder diffract-gateway-watchdog", (err) => {
+          if (err) send("log", `WARN: forwarder/watchdog restart failed: ${err.message}`);
+        });
+      }
+
+      // Stop the forwarder + watchdog BEFORE recreating. The forwarder holds host
+      // :8642 (the default sandbox's gateway port); during the DEFAULT sandbox's own
+      // rebuild that collides ("dashboard port 8642 became host-bound") and aborts
+      // onboard — which then DELETES the half-built sandbox, taking the live default
+      // down. The watchdog would also thrash the half-built box. restartForwarders()
+      // below brings both back once onboard finishes. (Permanent fix for the
+      // 2026-06-30 default-recreate outage — replaces the manual stop/restart.)
+      try {
+        execSync("sudo systemctl stop sandbox-port-forwarder diffract-gateway-watchdog", {
+          timeout: 15000,
+        });
+      } catch {
+        /* services absent (e.g. local dev) — nothing to stop */
+      }
+
       const proc = spawn(`${DIFFRACT} onboard --no-gpu --agent hermes --recreate-sandbox`, [], {
         env,
         shell: true,
@@ -257,6 +287,9 @@ export async function GET(request: Request) {
 
       proc.on("close", async (code) => {
         if (code !== 0) {
+          // Bring the forwarder + watchdog back even on failure, so a failed deploy
+          // never leaves the live default's chat backend down.
+          restartForwarders();
           send("error", `Deployment failed with exit code ${code}`);
           if (!isClosed) {
             isClosed = true;
@@ -273,11 +306,27 @@ export async function GET(request: Request) {
           );
         }
 
-        // Restart the port forwarder systemd service (fast; log if it fails so a
-        // dead chat backend isn't silent).
-        exec(`sudo systemctl restart sandbox-port-forwarder`, (err) => {
-          if (err) send("log", `WARN: port forwarder restart failed: ${err.message}`);
-        });
+        // Bring the forwarder + watchdog back now that the rebuild is done.
+        restartForwarders();
+
+        // Reconcile tool/MCP attachments: detach any provider attached to this
+        // sandbox that it does NOT own (per the per-box records) — self-heals
+        // isolation on every recreate and cleans stale cross-sandbox attachments
+        // (OpenShell can carry attachments across recreate by sandbox name). Never
+        // touches the inference provider. Best-effort; streamed into the log.
+        if (SANDBOX_NAME_RE.test(sName)) {
+          for (const script of ["diffract-tool-sync.sh", "diffract-mcp-sync.sh"]) {
+            try {
+              const out = execSync(`/usr/local/bin/${script} reconcile ${sName}`, {
+                encoding: "utf8",
+                timeout: 20000,
+              }).trim();
+              for (const line of out.split("\n").filter(Boolean)) send("log", line);
+            } catch {
+              /* reconcile is best-effort */
+            }
+          }
+        }
 
         // Apply egress (host allowlist + attributed binary, from the registry) for
         // EVERY connected tool to the fresh sandbox, so a tool attached at create
@@ -377,6 +426,8 @@ export async function GET(request: Request) {
       });
 
       proc.on("error", (err) => {
+        // Onboard never started — restore the services we stopped above.
+        restartForwarders();
         send("error", `Failed to start: ${err.message}`);
         if (!isClosed) {
           isClosed = true;

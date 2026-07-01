@@ -17,6 +17,13 @@ function readBasePath(): string {
 export const HERMES_BASE_PATH = readBasePath();
 const BASE = HERMES_BASE_PATH;
 
+// The authenticated dashboard user (from X-Hermes-User-Id, injected by the
+// Diffract Caddy forward_auth gate). Empty when served without per-user auth.
+// Used to namespace per-user client state (e.g. chat history) so two users on the
+// same browser don't share it.
+export const HERMES_USER_ID =
+  typeof window !== "undefined" ? (window.__HERMES_USER_ID__ ?? "") : "";
+
 import type { DashboardTheme } from "@/themes/types";
 
 // Ephemeral session token for protected endpoints.
@@ -25,6 +32,7 @@ declare global {
   interface Window {
     __HERMES_SESSION_TOKEN__?: string;
     __HERMES_BASE_PATH__?: string;
+    __HERMES_USER_ID__?: string;
   }
 }
 let _sessionToken: string | null = null;

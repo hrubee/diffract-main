@@ -7,9 +7,18 @@ import ToolsTab from "./ToolsTab";
 interface Props {
   sandboxName: string;
   onDestroyed: () => void;
+  // Return to the multi-sandbox list view. Optional so the component still works
+  // standalone (e.g. a single-sandbox deployment with no list).
+  onBack?: () => void;
+  // True once the fleet serves this sandbox at /<name>/agent/. When set, the Web
+  // Dashboard link points at the sandbox's OWN path (/<name>/agent/) instead of
+  // the shared legacy /agent (which always serves the default sandbox).
+  chatReady?: boolean;
+  // Only admins may destroy a sandbox (the API enforces it; this hides the button).
+  isAdmin?: boolean;
 }
 
-export default function Dashboard({ sandboxName, onDestroyed }: Props) {
+export default function Dashboard({ sandboxName, onDestroyed, onBack, chatReady, isAdmin }: Props) {
   const [activeTab, setActiveTab] = useState<"status" | "files" | "tools" | "logs" | "policies" | "rules">("status");
   const [status, setStatus] = useState<Record<string, string>>({});
   const [logs, setLogs] = useState<string[]>([]);
@@ -196,7 +205,15 @@ export default function Dashboard({ sandboxName, onDestroyed }: Props) {
       });
   }
 
-  const dashboardUrl = typeof window !== "undefined" ? `${window.location.origin}/agent` : "/agent";
+  // Prefer this sandbox's OWN path (/<name>/agent) so the link opens THIS
+  // sandbox's chat, not the default sandbox's legacy /agent. Fall back to /agent
+  // when the fleet isn't serving this sandbox yet.
+  const dashboardUrl =
+    typeof window !== "undefined"
+      ? chatReady
+        ? `${window.location.origin}/${encodeURIComponent(sandboxName)}/agent`
+        : `${window.location.origin}/agent`
+      : "/agent";
   const dashboardUrlWithToken = gatewayToken
     ? `${dashboardUrl}/?password=${gatewayToken}#token=${gatewayToken}`
     : `${dashboardUrl}/`;
@@ -295,6 +312,14 @@ export default function Dashboard({ sandboxName, onDestroyed }: Props) {
       {/* Header */}
       <div className="flex items-center justify-between mb-8">
         <div>
+          {onBack && (
+            <button
+              onClick={onBack}
+              className="text-xs text-nc-text-muted hover:text-nc-text transition-all mb-1"
+            >
+              ← All sandboxes
+            </button>
+          )}
           <h1 className="text-2xl font-semibold tracking-tight">Diffract</h1>
           <p className="text-nc-text-muted text-sm mt-0.5">
             Sandbox: <span className="text-nc-text font-mono">{sandboxName}</span>
@@ -409,7 +434,10 @@ export default function Dashboard({ sandboxName, onDestroyed }: Props) {
               setTokenCopied("connect");
               setTimeout(() => setTokenCopied(""), 2000);
             }} labelOverride={tokenCopied === "connect" ? "Copied!" : undefined} />
+            {isAdmin && (
             <ActionButton label="Redeploy" desc="Recreate the sandbox to load newly-connected tools / MCP servers into chat (model preserved)" variant="secondary" onClick={startRedeploy} />
+            )}
+            {isAdmin && (
             <ActionButton label="Destroy" desc="Delete sandbox" variant="danger" onClick={() => {
               if (
                 confirm(
@@ -434,6 +462,7 @@ export default function Dashboard({ sandboxName, onDestroyed }: Props) {
                   .catch(() => {});
               }
             }} />
+            )}
           </div>
         </div>
       )}

@@ -11,8 +11,9 @@ import type { NextRequest } from "next/server";
 import { SESSION_COOKIE, verifySessionToken, authConfigured } from "@/lib/auth";
 
 export const config = {
-  // Gate everything except Next internals, the login page, and the auth API.
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|login|api/auth).*)"],
+  // Gate everything except Next internals, the login page, the auth API, and
+  // api/authz (the Caddy forward_auth endpoint, which returns its own 302/403/200).
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|login|api/auth|api/authz).*)"],
 };
 
 export async function proxy(request: NextRequest) {

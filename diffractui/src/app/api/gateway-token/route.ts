@@ -1,4 +1,5 @@
 import { execFileSync } from "child_process";
+import { requireBoxAccess } from "@/lib/rbac";
 
 const OPENSHELL = process.env.OPENSHELL_PATH || "openshell";
 
@@ -9,6 +10,8 @@ export async function GET(request: Request) {
   if (!sandbox) {
     return Response.json({ token: "" }, { status: 400 });
   }
+  const denied = await requireBoxAccess(sandbox);
+  if (denied) return denied;
 
   try {
     const output = execFileSync(

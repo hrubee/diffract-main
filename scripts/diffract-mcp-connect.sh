@@ -116,6 +116,7 @@ HEADER=$(printf '%q' "$HEADER")
 SECRET_ENV=$(printf '%q' "$SECRET_ENV")
 PROVIDER=$(printf '%q' "$PROVIDER")
 EXTRA_HEADERS_B64=$(printf '%q' "$EXTRA_HEADERS_B64")
+SANDBOX=$(printf '%q' "$SANDBOX")
 EOF
 echo "[mcp-connect] recorded '$NAME' (placeholder only) in $RECORD_DIR/${NAME}.conf"
 

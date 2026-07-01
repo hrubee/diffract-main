@@ -125,14 +125,16 @@ for host in "${API_HOSTS[@]:-}"; do
   echo "[connect]   allowed ${host} (rest; binaries: ${BINARIES[*]:-any} + cross-netns -)"
 done
 
-# Record this tool as connected (gateway-independent), so the next deploy attaches
-# it at sandbox CREATE — required for chat use on OpenShell >= 0.0.57, where a
-# tool's credential injects into the long-running agent daemon only at create.
-# Idempotent: only append if not already present.
+# Record this tool as connected TO THIS SANDBOX (gateway-independent), so the next
+# deploy attaches it at sandbox CREATE — required for chat use on OpenShell >=
+# 0.0.57, where a tool's credential injects into the long-running agent daemon only
+# at create. The "tool:sandbox" form keeps tools PER-BOX: a tool connected to one
+# sandbox is never auto-attached to another. Idempotent.
+REC="${TOOL}:${SANDBOX}"
 if mkdir -p "$(dirname "$CONNECTED_FILE")" 2>/dev/null; then
-  if [ ! -f "$CONNECTED_FILE" ] || ! grep -qxF "$TOOL" "$CONNECTED_FILE" 2>/dev/null; then
-    echo "$TOOL" >> "$CONNECTED_FILE" \
-      && echo "[connect] recorded '$TOOL' in $CONNECTED_FILE (attached at next create)"
+  if [ ! -f "$CONNECTED_FILE" ] || ! grep -qxF "$REC" "$CONNECTED_FILE" 2>/dev/null; then
+    echo "$REC" >> "$CONNECTED_FILE" \
+      && echo "[connect] recorded '$REC' in $CONNECTED_FILE (attached to '$SANDBOX' at next create)"
   fi
 else
   echo "[connect] WARN: could not write $CONNECTED_FILE — '$TOOL' may not auto-attach at next create" >&2
